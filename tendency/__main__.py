@@ -7,6 +7,7 @@
     python -m tendency build                                       # everything after ingest, on what is already on disk
     python -m tendency verify-fields <pbp.json> [<box.json>]       # check assumed feed names against one real game
     python -m tendency validate app/data                           # validate an export directory against the schemas
+    python -m tendency inspect <gameId> [--only odd]               # one game's possessions beside the raw actions
 """
 from __future__ import annotations
 
@@ -53,10 +54,15 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("box", nargs="?")
     p = sub.add_parser("validate", help="validate an export directory against the contract schemas")
     p.add_argument("dir", type=Path)
+    p = sub.add_parser("inspect", help="print one game's possessions beside the raw actions that produced them")
+    p.add_argument("game_id", help="ten-digit game id, e.g. 0022500001")
+    p.add_argument("--root", type=Path, default=REPO / "data" / "real")
+    p.add_argument("--only", choices=["odd"], help="'odd' shows only possessions with unusual flags")
     a = ap.parse_args(argv)
 
     from .contract import ContractError
     from .ingest import HostBlockedError, IngestError
+    from .inspect import InspectError
     from .models import NotEnoughData
     from .pipeline import PipelineError
     try:
@@ -67,6 +73,11 @@ def main(argv: list[str] | None = None) -> int:
             from .contract import validate_export_dir
             print(f"valid: {validate_export_dir(a.dir)}")
             return 0
+        if a.cmd == "inspect":
+            from .inspect import inspect_game
+            text, summary = inspect_game(a.game_id, a.root, a.only == "odd")
+            print(text)
+            return 0 if summary["reconciles"] else 2
         if a.cmd in ("run", "ingest"):
             if a.end < a.start:
                 ap.error("--end is before --start")
@@ -94,7 +105,7 @@ def main(argv: list[str] | None = None) -> int:
     except HostBlockedError as e:
         print(f"BLOCKED: {e}", file=sys.stderr)
         return 3
-    except (IngestError, PipelineError, NotEnoughData, ContractError) as e:
+    except (IngestError, PipelineError, NotEnoughData, ContractError, InspectError) as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 2
 

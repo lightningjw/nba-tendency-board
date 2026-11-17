@@ -258,3 +258,67 @@ def test_timeout_after_the_deciding_foul_does_not_mark_the_possession(game, box)
     rows, _ = seg(game, box)
     assert rows[0]["ending_type"] == "foul_drawn" and not rows[0]["after_timeout"]
     assert not rows[1]["after_timeout"]             # the timeout belonged to the dead ball of the previous possession
+
+
+# ---- found by reading real 2025-26 games with `python -m tendency inspect` (step 1.2) ----
+def test_technical_free_throw_between_basket_and_and_one_does_not_split_it(game, box):
+    """Game 0022500166: made layup, shooting foul, a technical free throw missed (dead-ball team rebound), then the and-one."""
+    game.start().shot(700, HOME, 101, made=True).foul(700, AWAY, 201, drawn=101, descriptor="shooting") \
+        .foul(700, AWAY, 201, sub="technical") \
+        .ft(700, HOME, 102, 1, 1, made=False, technical=True).ev("rebound", 700, "offensive", HOME) \
+        .ft(700, HOME, 101, 1, 1, made=True).tov(680, AWAY, 202).end()
+    rows, _ = seg(game, box)
+    assert [(r["off_team_id"], r["ending_type"], r["points"], r["and_one"]) for r in rows[:2]] == [(HOME, "shot", 3, True), (AWAY, "turnover", 0, False)]
+    assert rows[0]["finisher_id"] == 101
+
+
+def test_away_from_play_free_throw_after_a_made_basket_ends_the_possession(game, box):
+    """Game 0022500017: basket, away-from-play foul, one free throw by a teammate, then the OTHER team has the ball."""
+    game.start().shot(700, HOME, 101, made=True).foul(700, AWAY, 201, drawn=102, descriptor="away-from-play") \
+        .ev("freethrow", 700, "1 of 1", HOME, 102, shotResult="Made", pts=1, descriptor="away-from-play") \
+        .foul(690, HOME, 103, drawn=201, descriptor="shooting").ft(690, AWAY, 201, 1, 2, made=True).ft(690, AWAY, 201, 2, 2, made=True).end()
+    rows, info = seg(game, box)
+    assert info["anomalies"] == 0
+    assert [(r["off_team_id"], r["ending_type"], r["points"]) for r in rows[:2]] == [(HOME, "shot", 3), (AWAY, "foul_drawn", 2)]
+    assert rows[0]["finisher_id"] == 101 and rows[0]["and_one"] and not rows[0]["retained_ft"]
+
+
+def test_missed_away_from_play_free_throw_after_a_basket_is_live(game, box):
+    """Game 0022500847: the free throw is missed and the defense rebounds it."""
+    game.start().shot(700, HOME, 101, made=True, three=True).foul(700, AWAY, 201, drawn=102, descriptor="away-from-play") \
+        .ev("freethrow", 700, "1 of 1", HOME, 102, shotResult="Missed", descriptor="away-from-play") \
+        .reb(698, AWAY, 203).tov(690, AWAY, 204).end()
+    rows, info = seg(game, box)
+    assert info["anomalies"] == 0
+    assert [(r["off_team_id"], r["ending_type"], r["points"]) for r in rows[:2]] == [(HOME, "shot", 3), (AWAY, "turnover", 0)]
+
+
+def test_two_shot_away_from_play_trip_is_an_ordinary_trip(game, box):
+    """Game 0022501070: an off-ball foul in the penalty, two free throws, then the other team's ball."""
+    game.start().foul(700, AWAY, 201, drawn=102, descriptor="away-from-play") \
+        .ev("freethrow", 700, "1 of 2", HOME, 102, shotResult="Made", pts=1, descriptor="away-from-play") \
+        .ev("freethrow", 700, "2 of 2", HOME, 102, shotResult="Made", pts=1, descriptor="away-from-play") \
+        .shot(685, AWAY, 202, made=False).reb(683, HOME, 103).end()
+    rows, info = seg(game, box)
+    assert info["anomalies"] == 0
+    assert [(r["off_team_id"], r["ending_type"], r["points"]) for r in rows[:2]] == [(HOME, "foul_drawn", 2), (AWAY, "shot", 0)]
+
+
+def test_lone_away_from_play_free_throw_still_keeps_the_ball(game, box):
+    game.start().foul(700, AWAY, 201, drawn=102, descriptor="away-from-play") \
+        .ev("freethrow", 700, "1 of 1", HOME, 102, shotResult="Made", pts=1, descriptor="away-from-play") \
+        .shot(685, HOME, 103, made=True).end()
+    rows, _ = seg(game, box)
+    assert [(r["off_team_id"], r["ending_type"], r["points"], r["retained_ft"]) for r in rows[:1]] == [(HOME, "shot", 3, True)]
+
+
+def test_basket_plus_flagrant_free_throw_is_two_possessions_for_the_same_team(game, box):
+    """The basket ends its possession; the flagrant free throw and the ball that follows are the next one."""
+    game.start().shot(700, HOME, 101, made=True).foul(700, AWAY, 201, drawn=101, descriptor="flagrant-type-1") \
+        .ev("freethrow", 700, "1 of 1", HOME, 101, shotResult="Made", pts=1, descriptor="flagrant") \
+        .foul(690, AWAY, 202, drawn=103, descriptor="shooting").ft(690, HOME, 103, 1, 2, made=True).ft(690, HOME, 103, 2, 2, made=True).end()
+    rows, info = seg(game, box)
+    assert info["anomalies"] == 0
+    assert [(r["off_team_id"], r["ending_type"], r["points"], r["and_one"], r["retained_ft"]) for r in rows[:2]] == \
+        [(HOME, "shot", 2, False, False), (HOME, "foul_drawn", 3, False, True)]
+    assert rows[1]["finisher_id"] == 103

@@ -13,7 +13,12 @@ Rules (each has a test in tests/test_possessions.py):
 * Technical free throws never start, end or relabel a possession. Their points
   are kept apart in `tech_ft_points_off` / `tech_ft_points_def`.
 * Free throws where the shooting team keeps the ball afterwards (flagrant, clear-path, transition
-  take, away-from-play) add their points to the possession but do not end or relabel it.
+  take, and a lone away-from-play free throw) add their points to the possession but do not end or
+  relabel it. A basket made on the same play ends its own possession first; the free throws open the
+  next one for the same team. An away-from-play free throw after a made basket, or a two-shot
+  away-from-play trip, ends the possession like any other trip.
+* A technical free throw (and its dead-ball rebound) between a made basket and its and-one free
+  throw does not split the and-one.
 * End-of-period heave: a `heave` action (2025-26 onward), or a shot from >= 40 ft (or area "Backcourt") with <= 3 s on
   the period clock is flagged `is_heave`, given shot_family "heave", and excluded
   from every prediction head (`model_eligible` = False).
@@ -287,11 +292,21 @@ def segment_game(pbp: dict, box: dict) -> tuple[list[dict], dict]:
         cur["off"] = team
 
     def and_one_follows(i: int, team: int) -> bool:
+        """Is the made basket at index i followed by a single free throw that belongs to the same possession?
+
+        A rebound cannot end the scan: no shot has been missed yet, so any rebound seen here is the
+        dead-ball one logged after a missed technical free throw. A flagrant, clear-path or take-foul
+        free throw is not an and-one: the team keeps the ball, so the basket ends its possession and
+        the free throws open the next one. An away-from-play "1 of 1" after a made basket IS one: the
+        ball goes to the other team afterwards (33 of 34 such trips in 2023-26; the other ended a period).
+        """
         for b in actions[i + 1:]:
             t = _low(b, F.ACTION_TYPE)
-            if t in (F.T_2PT, F.T_3PT, F.T_TURNOVER, F.T_REBOUND, F.T_JUMPBALL, F.T_PERIOD):
+            if t in (F.T_2PT, F.T_3PT, F.T_TURNOVER, F.T_JUMPBALL, F.T_PERIOD, F.T_HEAVE):
                 return False
             if t == F.T_FREETHROW and not is_technical(b):
+                if _low(b, F.DESCRIPTOR) in F.FT_KEEP_BALL_DESCRIPTORS:
+                    return False
                 m = _FT_RE.search(_low(b, F.SUB_TYPE))
                 return bool(m) and m.group(2) == "1" and b.get(F.TEAM_ID) == team
         return False
@@ -414,12 +429,17 @@ def segment_game(pbp: dict, box: dict) -> tuple[list[dict], dict]:
                 continue
             claim(team, a, clock_s)
             cur["live"] = True
-            if _low(a, F.DESCRIPTOR) in F.FT_RETAIN_DESCRIPTORS:
+            m = _FT_RE.search(st)
+            k, n = (int(m.group(1)), int(m.group(2))) if m else (1, 1)
+            desc = _low(a, F.DESCRIPTOR)
+            # An away-from-play trip keeps the ball only as a lone free throw with no basket before it.
+            # After a made basket it is an and-one shot by a teammate, and a two-shot trip is an
+            # ordinary penalty trip; both end the possession the usual way.
+            ordinary_away = desc == F.FT_AWAY_FROM_PLAY and (cur["keep_shot_label"] or n >= 2)
+            if desc in F.FT_RETAIN_DESCRIPTORS and not ordinary_away:
                 cur["points"] += int(made)                  # shooting team keeps the ball: no label, no ending
                 cur["retained_ft"] = True
                 continue
-            m = _FT_RE.search(st)
-            k, n = (int(m.group(1)), int(m.group(2))) if m else (1, 1)
             if made:
                 cur["points"] += 1
             if not cur["keep_shot_label"] and (cur["label"] is None or cur["label"]["ending"] != "foul_drawn"):

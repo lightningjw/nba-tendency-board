@@ -18,7 +18,7 @@ games and a held-out season, all three heads beat their baselines by small, clea
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 
-pytest                                  # 56 tests, about 20 s
+pytest                                  # about 20 s
 python -m tendency sample               # synthetic games -> app/data (no network)
 python -m http.server 8000 -d app       # open http://localhost:8000
 ```
@@ -54,6 +54,13 @@ python -m tendency verify-fields data/real/raw/pbp/<gameId>.json data/real/raw/b
 Fix anything it flags in `tendency/cdn_fields.py` (the only file that names feed fields), then pass
 `--fields-verified` to `run` or `build` so the app drops its "not checked" notice.
 
+To read one game by hand, possession by possession beside the raw actions:
+
+```bash
+python -m tendency inspect 0022500001              # every possession
+python -m tendency inspect 0022500001 --only odd   # and-ones, heaves, technicals, anything unexplained
+```
+
 Other commands: `python -m tendency build` (everything after ingest, from files on disk),
 `python -m tendency validate app/data`, `node app/tools/check-contract.mjs` (same check with the app's validator).
 
@@ -72,6 +79,7 @@ tendency/             pipeline package
   cdn_fields.py       every assumed feed name, URL and rule of thumb
   ingest.py           fetch raw JSON as landed; idempotent; backoff; clear stop on a blocked host
   possessions.py      one row per possession; edge-case rules in the module docstring
+  inspect.py          one game's possessions beside the raw actions, with a reconciliation summary
   features.py         context / pregame / in-game features and the baselines (DuckDB)
   models.py           splits, LightGBM per head, log-loss with game-bootstrap intervals, reliability
   tendencies.py       simple shrinkage estimate for the team report (labeled as such)
