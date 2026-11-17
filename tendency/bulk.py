@@ -117,8 +117,9 @@ def game_to_raw(game_id: str, g: pd.DataFrame) -> tuple[dict, dict]:
         t, p = a.get("teamId"), a.get("personId")
         if t in names:
             tricode.setdefault(t, a.get("teamTricode", str(t)))
-            if p and a.get("actionType") != "ejection":
-                names[t].setdefault(p, a.get("playerNameI") or a.get("playerName") or str(p))
+            # a personId with no player name is a coach or the bench (team technicals, ejections), not a player
+            if p and a.get("actionType") != "ejection" and (a.get("playerNameI") or a.get("playerName")):
+                names[t].setdefault(p, a.get("playerNameI") or a.get("playerName"))
     player_team = {p: t for t, ps in names.items() for p in ps}
     for a in actions:                                        # players who only appear as assister / fouled / stealer / blocker
         for key, nm in (("assistPersonId", "assistPlayerNameInitial"), ("foulDrawnPersonId", "foulDrawnPlayerName"),
@@ -142,8 +143,8 @@ def game_to_raw(game_id: str, g: pd.DataFrame) -> tuple[dict, dict]:
             elif p and p not in entered and p in player_team and p not in starters[player_team[p]]:
                 starters[player_team[p]].append(p)
             continue
-        if typ not in LIVE:
-            continue
+        if typ not in LIVE or (typ == "foul" and F.TECHNICAL_MARKER in str(sub or "").lower()):
+            continue                                         # a technical can be called on the bench: it proves nothing
         for key in ("personId", "assistPersonId", "foulDrawnPersonId", "stealPersonId", "blockPersonId"):
             q = a.get(key)
             if q and q not in entered and q in player_team and q not in starters[player_team[q]]:

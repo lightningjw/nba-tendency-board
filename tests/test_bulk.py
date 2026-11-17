@@ -65,3 +65,18 @@ def test_missing_season_is_a_clear_error(tmp_path):
             return Listing()
     with pytest.raises(IngestError, match="no cdnnba_1999 archive"):
         download_season(1999, tmp_path, S(), log=lambda _: None)
+
+
+def test_bench_technical_does_not_make_a_coach_a_starter():
+    """Game 0022500704: a team technical at 12:00 carries a personId with no player name. It is not a player."""
+    from conftest import AWAY, HOME, Game
+    g = Game().start()
+    g.ev("foul", 720, "technical", HOME, 2794, description="TEAM foul technical")
+    for i, pid in enumerate([101, 102, 103, 104, 105]):
+        g.shot(700 - 20 * i, HOME, pid, made=True, playerName=f"P{pid}")
+        g.shot(690 - 20 * i, AWAY, 201 + i, made=True, playerName=f"P{201 + i}")
+    g.end()
+    _, box = game_to_raw("0022500001", _as_archive_rows(g.pbp()))
+    home = box[F.GAME][F.BOX_HOME]
+    assert sorted(p[F.BOX_PLAYER_ID] for p in home[F.BOX_PLAYERS] if p[F.BOX_PLAYER_STARTER] == "1") == [101, 102, 103, 104, 105]
+    assert 2794 not in [p[F.BOX_PLAYER_ID] for p in home[F.BOX_PLAYERS]]
