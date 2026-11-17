@@ -1,0 +1,210 @@
+{
+  "$id": "team_report.schema.json",
+  "title": "One team's tendencies: deviations from a baseline, each with an interval and a sample size",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "team_id",
+    "data_kind",
+    "as_of_utc",
+    "n_games",
+    "n_possessions",
+    "n_candidates",
+    "method",
+    "interval_level",
+    "sort",
+    "tendencies"
+  ],
+  "properties": {
+    "team_id": {
+      "type": "integer"
+    },
+    "data_kind": {
+      "enum": [
+        "synthetic",
+        "real"
+      ]
+    },
+    "as_of_utc": {
+      "type": "string"
+    },
+    "n_games": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "n_possessions": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "method": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "label",
+        "final"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "final": {
+          "type": "boolean"
+        }
+      }
+    },
+    "interval_level": {
+      "type": "number",
+      "minimum": 0.5,
+      "maximum": 0.999
+    },
+    "sort": {
+      "const": "rank_score_desc"
+    },
+    "tendencies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "scope",
+          "player_id",
+          "situation",
+          "outcome",
+          "baseline_kind",
+          "baseline_rate",
+          "raw_rate",
+          "shrunk_rate",
+          "deviation",
+          "interval",
+          "n",
+          "k",
+          "prior_strength",
+          "rank_score",
+          "excludes_zero"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "scope": {
+            "enum": [
+              "team",
+              "player"
+            ]
+          },
+          "player_id": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "situation": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "label"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              }
+            }
+          },
+          "outcome": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "head",
+              "class",
+              "label"
+            ],
+            "properties": {
+              "head": {
+                "enum": [
+                  "finisher",
+                  "ending_type",
+                  "shot_family"
+                ]
+              },
+              "class": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "label": {
+                "type": "string"
+              }
+            }
+          },
+          "baseline_kind": {
+            "enum": [
+              "league_same_situation",
+              "team_overall_plus_league_shift",
+              "player_overall"
+            ]
+          },
+          "baseline_rate": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "raw_rate": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "shrunk_rate": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "deviation": {
+            "type": "number",
+            "minimum": -1,
+            "maximum": 1
+          },
+          "interval": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "n": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "k": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "prior_strength": {
+            "type": "number",
+            "minimum": 0
+          },
+          "rank_score": {
+            "type": "number"
+          },
+          "excludes_zero": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "n_candidates": {
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

@@ -1,0 +1,430 @@
+// Tendency Board front end. Static: reads the contract JSON under data/ and nothing else.
+// Every file is validated against its JSON Schema before it is rendered.
+import { validate } from "./validate.js";
+
+const DATA = "data/";
+const SCHEMAS = ["manifest", "teams", "team_report", "games", "replay", "scorecard"];
+const VIEWS = ["method", "team", "replay", "scorecard"];
+const FAMS = ["rim", "paint", "midrange", "corner3", "above_break3"];
+const HEADS = ["finisher", "ending_type", "shot_family"];
+const $ = (sel) => document.querySelector(sel);
+
+const S = {
+  schemas: {}, manifest: null, teams: null, games: null, scorecard: null,
+  teamId: null, reports: {}, gameId: null, replays: {}, idx: 0,
+  guess: false, picks: {}, revealed: false, scored: new Set(),
+  tally: Object.fromEntries(HEADS.map((h) => [h, { n: 0, you: 0, model: 0, baseline: 0 }])),
+};
+
+// ---------- helpers ----------
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const int = (n) => Number(n).toLocaleString("en-US");
+const pct = (p, d = 0) => (p > 0 && p < 0.005 && d === 0 ? "<1%" : `${(p * 100).toFixed(d)}%`);
+const pts = (x) => `${x >= 0 ? "+" : "−"}${Math.abs(x * 100).toFixed(1)}`;
+const argmax = (a) => a.indexOf(Math.max(...a));
+const periodName = (p) => (p <= 4 ? `Q${p}` : `OT${p - 4}`);
+const clock = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+const day = (iso) => new Date(iso).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" });
+const team = (id) => S.teams.byId.get(id) || { tricode: String(id), name: String(id) };
+const player = (id) => S.teams.players.get(id) || `Player ${id}`;
+const head = (id) => S.manifest.heads.find((h) => h.id === id);
+const START = { period_start: "Start of period", made_basket: "After a made basket", def_rebound: "Off a defensive rebound", turnover: "Off a turnover", free_throw: "After free throws", other: "Other start" };
+const SPLIT = { holdout_games: "Held-out games, same seasons as training", holdout_season: "Held-out season" };
+
+class ContractProblem extends Error {}
+
+async function getJSON(path, schemaName) {
+  let res;
+  try { res = await fetch(DATA + path); } catch (e) { throw new Error(`Could not load ${path}. Check your connection and reload.`); }
+  if (!res.ok) throw new Error(`Could not load ${path} (HTTP ${res.status}). Run the pipeline's export step, then reload.`);
+  const obj = await res.json();
+  if (schemaName) {
+    const errors = validate(obj, S.schemas[schemaName]);
+    if (errors.length) throw new ContractProblem(`${path} does not match ${schemaName}.schema.json:\n${errors.join("\n")}`);
+  }
+  return obj;
+}
+
+function showError(e) {
+  const kind = e instanceof ContractProblem ? "The data does not match the contract, so nothing is shown" : "Something went wrong";
+  $("#view").innerHTML = `<div class="error"><h3>${kind}</h3><pre>${esc(e.message)}</pre></div>`;
+  console.warn(e.message);
+}
+
+// ---------- court diagram (zones are schematic, not to scale) ----------
+function court(probs, hitFam, caption) {
+  const max = Math.max(...probs, 0.01);
+  const z = (i) => {
+    const alpha = 0.05 + 0.85 * Math.min(1, probs[i] / Math.max(0.45, max));
+    return { fill: `rgba(36,71,214,${alpha.toFixed(3)})`, light: alpha > 0.5, cls: `zone${FAMS[i] === hitFam ? " hit" : ""}` };
+  };
+  const label = (i, x, y, name) => {
+    const c = z(i).light ? "#fff" : "#15181C";
+    return `<text x="${x}" y="${y}" style="fill:${c}">${pct(probs[i])}</text><text class="zl" x="${x}" y="${y + 16}" style="fill:${c}">${name}${FAMS[i] === hitFam ? " ✓" : ""}</text>`;
+  };
+  const [rim, paint, mid, corner, ab3] = [0, 1, 2, 3, 4].map(z);
+  return `<svg class="court" viewBox="0 0 500 380" role="img" aria-label="${esc(caption)}">
+    <rect class="${ab3.cls}" x="0" y="0" width="500" height="380" fill="${ab3.fill}"/>
+    <rect class="${corner.cls}" x="0" y="0" width="62" height="140" fill="#fff"/><rect class="${corner.cls}" x="0" y="0" width="62" height="140" fill="${corner.fill}"/>
+    <rect class="${corner.cls}" x="438" y="0" width="62" height="140" fill="#fff"/><rect class="${corner.cls}" x="438" y="0" width="62" height="140" fill="${corner.fill}"/>
+    <path d="M62,0 L62,140 A207.5,207.5 0 0 0 438,140 L438,0 Z" fill="#fff"/>
+    <path class="${mid.cls}" d="M62,0 L62,140 A207.5,207.5 0 0 0 438,140 L438,0 Z" fill="${mid.fill}"/>
+    <rect x="170" y="0" width="160" height="190" fill="#fff"/><rect class="${paint.cls}" x="170" y="0" width="160" height="190" fill="${paint.fill}"/>
+    <circle cx="250" cy="52" r="46" fill="#fff"/><circle class="${rim.cls}" cx="250" cy="52" r="46" fill="${rim.fill}"/>
+    <circle class="hoop" cx="250" cy="20" r="7"/><line class="hoop" x1="225" y1="10" x2="275" y2="10"/>
+    ${label(0, 250, 58, "rim")}${label(1, 250, 140, "paint")}${label(2, 116, 120, "midrange")}
+    ${label(3, 31, 66, "corner 3")}${label(4, 250, 318, "above-break 3")}
+  </svg>`;
+}
+
+// ---------- probability rows ----------
+function band(headId, split, p) {
+  const h = S.scorecard.heads.find((x) => x.head === headId);
+  const s = h && h.splits.find((x) => x.split === split);
+  if (!s || !s.available) return null;
+  const b = s.reliability.model.bins[Math.min(9, Math.floor(p * 10))];
+  return b && b.n ? b : null;
+}
+
+function probRows(headId, labels, pred, hitIdx, split, pickIdx) {
+  return `<div class="rows">${labels.map((lab, i) => {
+    const pm = pred.model[i], pb = pred.baseline[i], b = band(headId, split, pm);
+    const bandText = b
+      ? `Held out, ${Math.round(b.lo * 100)}–${Math.round(b.hi * 100)}% calls hit ${pct(b.obs_rate)} (n ${int(b.n)})`
+      : "No held-out calls in this band yet";
+    const mine = pickIdx === i ? `<span class="mine">your pick</span>` : "";
+    return `<div class="prow${i === hitIdx ? " hit" : ""}">
+      <span class="lab">${esc(lab)}${i === hitIdx ? ` <span class="ok" aria-label="what happened">✓</span>` : ""}${mine}</span>
+      <span class="track" role="img" aria-label="model ${pct(pm)}, baseline ${pct(pb)}"><span class="fill" style="width:${(pm * 100).toFixed(1)}%"></span><span class="tick" style="left:calc(${(pb * 100).toFixed(1)}% - 1.5px)" title="baseline ${pct(pb)}"></span></span>
+      <span class="p">${pct(pm)}</span>
+      <span class="band">${bandText}. Baseline ${pct(pb)}.</span>
+    </div>`;
+  }).join("")}</div>`;
+}
+
+// ---------- view: method ----------
+async function renderMethod() {
+  const m = S.manifest, c = m.coverage, synth = m.data_kind === "synthetic";
+  const g = S.games.games[0];
+  let example = "";
+  if (g) {
+    try {
+      const rep = await loadReplay(g.game_id);
+      const p = rep.possessions.find((x) => x.eligible && x.actual.ending_type === "shot" && x.idx > 12) || rep.possessions.find((x) => x.eligible);
+      if (p) {
+        const b = band("shot_family", rep.split, Math.max(...p.pred.shot_family.model));
+        example = `<figure>${court(p.pred.shot_family.model, p.actual.shot_family, "Example shot-location probabilities on a half court")}
+          <figcaption>One held-out possession${synth ? " from the simulated sample" : ""}: ${esc(team(p.off_team_id).name)}, ${periodName(p.period)} ${clock(p.clock_s)}.
+          Shading is the model's probability for each zone if the possession ends in a shot; the green outline is where the shot came from.
+          ${b ? `Calls in the top zone's ${Math.round(b.lo * 100)}–${Math.round(b.hi * 100)}% band came true ${pct(b.obs_rate)} of ${int(b.n)} times on held-out games.` : ""}</figcaption></figure>`;
+      }
+    } catch (e) { console.warn(e.message); }
+  }
+  const sp = m.splits;
+  $("#view").innerHTML = `
+  <section class="hero">
+    <div>
+      <h1>What happens on the next possession?</h1>
+      <p class="lede">Tendency Board reads public NBA play-by-play and, before each possession, says who is likely to finish it, how it is likely to end, and where the shot is likely to come from. Then it checks itself against the dumbest reasonable guess and shows the result, win or lose.</p>
+      <p><a class="btn primary" href="#replay" style="text-decoration:none;display:inline-block">Step through a game</a>
+         <a class="btn" href="#scorecard" style="text-decoration:none;display:inline-block">See the scorecard</a></p>
+    </div>
+    ${example}
+  </section>
+
+  <div class="facts" aria-label="What this build covers">
+    <div><b>${int(c.n_games)}</b><span>${synth ? "simulated " : ""}games, ${c.seasons.length} season${c.seasons.length > 1 ? "s" : ""}</span></div>
+    <div><b>${int(c.n_possessions)}</b><span>possessions segmented</span></div>
+    <div><b>${int(c.n_eligible)}</b><span>possessions the models are scored on or trained with</span></div>
+    <div><b>${int(sp.holdout_games.n_games + sp.holdout_season.n_games)}</b><span>held-out games (${int(sp.holdout_games.n_games)} late-season, ${int(sp.holdout_season.n_games)} in a held-out season)</span></div>
+  </div>
+  ${synth ? `<p class="note">This build runs on simulated games so the whole thing can be clicked through before real data is ingested. Team and player names are placeholders. No number on any page is an NBA result, and no claim is made that the models beat their baselines on real games.</p>` : ""}
+  ${m.field_names_verified ? "" : `<p class="note">The pipeline's feed field names have not been checked against a real game file yet. Until that check passes, treat the real-data path as untested.</p>`}
+
+  <section class="section"><h2>Three predictions, each with a baseline to beat</h2>
+    <div class="cols">${m.heads.map((h) => `<div class="sheet"><h3>${esc(h.label)}</h3>
+      <p>${h.classes ? esc(h.class_labels.join(", ")) + "." : "One of the five offensive players on the floor."}${h.conditional_on ? ` Given that ${esc(h.conditional_on)}.` : ""}</p>
+      <p class="small muted">Baseline: ${esc(h.baseline)}.</p></div>`).join("")}</div>
+    <p style="margin-top:14px">The model for each prediction is gradient-boosted trees that start from the baseline's odds and learn corrections from game context: clock, score, fouls, timeouts, who is on the floor, how the possession started, and what has happened so far in the game. A prediction ships only if it beats its baseline on games it never saw.</p>
+  </section>
+
+  <section class="section"><h2>How it is kept honest</h2>
+    <div class="cols">
+      <div class="sheet"><h3>Held-out games, held-out season</h3><p>${esc(sp.rule)}</p>
+        <p class="small muted">Training: ${int(sp.train.n_games)} games. Held out: ${int(sp.holdout_games.n_games)} games and ${int(sp.holdout_season.n_games)} games in a separate season.</p></div>
+      <div class="sheet"><h3>Nothing from the future</h3><p>Season-to-date numbers for a game use only games that tipped off earlier. In-game counts use only earlier possessions. A test rewrites later outcomes and fails if any feature moves.</p></div>
+      <div class="sheet"><h3>Uncertainty on every number</h3><p>Scorecard intervals resample whole games. Each probability in the replay sits beside how often calls like it came true on held-out games. Tendencies show an interval and a sample size, and are ranked by the cautious end of the interval.</p></div>
+    </div>
+  </section>
+
+  <section class="section"><h2>What play-by-play cannot see</h2>
+    <div class="cols">
+      <div class="sheet"><h3>No play calls, no coverages</h3><p>The feed records what ended a possession, not the set that was called or how the pick-and-roll was defended. Those need tracking or video. Nothing here predicts or implies them.</p></div>
+      <div class="sheet"><h3>Lineups are reconstructed</h3><p>Who is on the floor comes from starters plus substitution events. ${pct(m.quality.lineup_ok_rate, 1)} of ${int(m.quality.n_possessions)} possessions reconstruct to five a side; the rest are left out of scoring.</p>
+        <p class="small muted">${int(m.quality.n_heaves)} end-of-period heaves and ${int(m.quality.n_period_end)} possessions cut off by the horn are also left out. ${int(m.quality.n_anomalous_possessions)} changes of possession could not be explained by the segmenter.</p></div>
+      <div class="sheet"><h3>Tendencies are a first pass</h3><p>${esc(m.tendency_method.label)}. ${esc(m.tendency_method.note)}</p></div>
+    </div>
+  </section>
+
+  <section class="section"><h2>Not built yet</h2>
+    <p>${esc(m.not_built.join(", "))}. Teams with tracking and video vendors have richer labels than this; the point here is the method, not exclusive insight.</p>
+  </section>`;
+}
+
+// ---------- view: team report ----------
+async function renderTeam() {
+  const teams = S.teams.teams;
+  if (!S.teamId) S.teamId = teams[0].team_id;
+  const t = team(S.teamId);
+  if (!S.reports[S.teamId]) S.reports[S.teamId] = await getJSON(`${S.manifest.files.team_reports_dir}/${S.teamId}.json`, "team_report");
+  const r = S.reports[S.teamId];
+  const lvl = Math.round(r.interval_level * 100);
+  const maxAbs = Math.max(0.01, ...r.tendencies.flatMap((x) => x.interval.map(Math.abs))) * 1.08;
+  const X = (v) => (150 + (v / maxAbs) * 142).toFixed(1);
+  const unit = (x) => (x.scope === "player" ? "possessions on the floor" : x.outcome.head === "shot_family" ? "shots" : "possessions");
+  const versus = { league_same_situation: "the league rate", team_overall_plus_league_shift: "expected from the team's overall rate and the league-wide shift in this situation", player_overall: "his share across all situations" };
+  const rows = r.tendencies.map((x) => {
+    const up = x.deviation >= 0, col = !x.excludes_zero ? "#6E7580" : up ? "#2447D6" : "#C8253A";
+    return `<li class="${x.excludes_zero ? "" : "weak"}">
+      <div class="what"><b>${esc(x.outcome.label)}</b><br><span class="sit">${esc(x.situation.label)}</span>
+        <div class="nums">${pct(x.raw_rate, 1)} observed on ${int(x.n)} ${unit(x)}; ${pct(x.baseline_rate, 1)} is ${versus[x.baseline_kind]}.</div></div>
+      <div><span class="dev ${up ? "up" : "down"}">${pts(x.deviation)} pts</span>
+        <span class="small muted"> ${lvl}% interval ${pts(x.interval[0])} to ${pts(x.interval[1])}${x.excludes_zero ? "" : ", includes zero"}</span>
+        <svg class="ivl" viewBox="0 0 300 34" role="img" aria-label="Deviation ${pts(x.deviation)} points, interval ${pts(x.interval[0])} to ${pts(x.interval[1])}, n ${x.n}">
+          <line class="axis" x1="4" y1="17" x2="296" y2="17"/><line class="zero" x1="150" y1="4" x2="150" y2="30"/>
+          <line class="bar" x1="${X(x.interval[0])}" y1="17" x2="${X(x.interval[1])}" y2="17" stroke="${col}"/>
+          <circle class="dot" cx="${X(x.deviation)}" cy="17" r="5.5" stroke="${col}"/></svg></div></li>`;
+  }).join("");
+  const flagged = r.tendencies.filter((x) => x.excludes_zero).length;
+  $("#view").innerHTML = `
+  <div class="pagehead"><div><h2>Team report: ${esc(t.name)}</h2>
+    <p class="muted">${int(r.n_possessions)} offensive possessions in ${int(r.n_games)} games, through ${day(r.as_of_utc)}.</p></div>
+    <div class="pick" role="group" aria-label="Team">${teams.map((x) => `<button data-team="${x.team_id}" aria-pressed="${x.team_id === S.teamId}" title="${esc(x.name)}">${esc(x.tricode)}</button>`).join("")}</div></div>
+  <div class="sheet">
+    <p><strong>${esc(r.method.label)}.</strong> ${r.method.final ? "" : "This is a stand-in until the partial-pooling model is fitted, and it is labeled that way on purpose."}
+    A tendency is how far a rate sits from its baseline, in percentage points. Small samples are pulled toward the baseline. Rows are ordered by the end of the interval nearest zero, so a big estimate on a thin sample does not jump the queue.</p>
+    ${r.tendencies.length ? `<ul class="tend">${rows}</ul>` : `<p class="note plain">No situation has at least 25 possessions for this team yet. Ingest more games and run the export again.</p>`}
+    <p class="note plain">These ${r.tendencies.length} rows were picked from ${int(r.n_candidates)} candidates, and ${flagged} have a ${lvl}% interval clear of zero. With that many candidates, roughly ${Math.round(r.n_candidates * (1 - r.interval_level))} would clear zero by chance alone. Intervals treat the baseline as exact, which makes them a little narrow. Player rows do not adjust for who else is on the floor.</p>
+  </div>`;
+  document.querySelectorAll("[data-team]").forEach((b) => b.addEventListener("click", () => { S.teamId = Number(b.dataset.team); render(); }));
+}
+
+// ---------- view: replay ----------
+async function loadReplay(gameId) {
+  if (!S.replays[gameId]) S.replays[gameId] = await getJSON(`${S.manifest.files.replays_dir}/${gameId}.json`, "replay");
+  return S.replays[gameId];
+}
+
+function actualText(p) {
+  const a = p.actual, who = a.finisher_id ? player(a.finisher_id) : team(p.off_team_id).name;
+  const fam = { rim: "at the rim", paint: "in the paint", midrange: "from midrange", corner3: "from the corner, for three", above_break3: "from above the break, for three", heave: "on a heave" }[a.shot_family] || "";
+  const extra = `${a.n_off_reb ? ` after ${a.n_off_reb} offensive rebound${a.n_off_reb > 1 ? "s" : ""}` : ""}. ${a.points} point${a.points === 1 ? "" : "s"} on the possession.`;
+  if (a.ending_type === "shot") return `${who} ${a.shot_made ? "made" : "missed"} a shot ${fam}${a.and_one ? ", and drew the foul" : ""}${extra}`;
+  if (a.ending_type === "foul_drawn") return `${who} drew a foul and went to the line${extra}`;
+  if (a.ending_type === "turnover") return `${a.finisher_id ? who + " turned it over" : "Team turnover"}${extra}`;
+  if (a.ending_type === "period_end") return "The period ended before a shot, foul or turnover.";
+  return "The play-by-play shows a change of possession the segmenter could not explain.";
+}
+
+function scoreGuess(key, p) {
+  if (S.scored.has(key)) return;
+  S.scored.add(key);
+  const a = p.actual, truth = { finisher: a.finisher_id ? p.off_lineup.indexOf(a.finisher_id) : -1, ending_type: head("ending_type").classes.indexOf(a.ending_type), shot_family: a.ending_type === "shot" ? FAMS.indexOf(a.shot_family) : -1 };
+  for (const h of HEADS) {
+    if (truth[h] < 0 || S.picks[h] === undefined) continue;
+    const t = S.tally[h];
+    t.n += 1;
+    t.you += S.picks[h] === truth[h] ? 1 : 0;
+    t.model += argmax(p.pred[h].model) === truth[h] ? 1 : 0;
+    t.baseline += argmax(p.pred[h].baseline) === truth[h] ? 1 : 0;
+  }
+}
+
+function tallyTable() {
+  const any = HEADS.some((h) => S.tally[h].n);
+  if (!any) return `<p class="small muted">Pick who finishes and how it ends, then show the model. Your hits are counted against the model's top pick and the baseline's top pick on the same possessions.</p>`;
+  const cell = (k, n) => (n ? `${k} of ${n}` : "none yet");
+  return `<table class="tally"><thead><tr><th>Top pick right</th><th>You</th><th>Model</th><th>Baseline</th></tr></thead><tbody>
+    ${HEADS.map((h) => { const t = S.tally[h]; return `<tr><td>${esc(head(h).label)}</td><td>${cell(t.you, t.n)}</td><td>${cell(t.model, t.n)}</td><td>${cell(t.baseline, t.n)}</td></tr>`; }).join("")}
+  </tbody></table><p class="small muted">A few dozen possessions is far too few to separate you from the model. The scorecard uses thousands.</p>`;
+}
+
+async function renderReplay() {
+  const games = S.games.games;
+  if (!games.length) { $("#view").innerHTML = `<div class="sheet"><h2>Replay</h2><p>No held-out games were exported. Run the pipeline on a longer date range.</p></div>`; return; }
+  if (!S.gameId) S.gameId = games[0].game_id;
+  const rep = await loadReplay(S.gameId);
+  const n = rep.possessions.length;
+  S.idx = Math.max(0, Math.min(n - 1, S.idx));
+  const p = rep.possessions[S.idx], key = `${S.gameId}:${p.idx}`;
+  const home = team(rep.home_team_id), away = team(rep.away_team_id), off = team(p.off_team_id);
+  const hiding = S.guess && p.eligible && !S.revealed && !S.scored.has(key);
+  const a = p.actual, endClasses = head("ending_type").classes;
+  const hit = { finisher: a.finisher_id ? p.off_lineup.indexOf(a.finisher_id) : -1, ending_type: endClasses.indexOf(a.ending_type), shot_family: a.ending_type === "shot" ? FAMS.indexOf(a.shot_family) : -1 };
+  const labels = { finisher: p.off_lineup.map(player), ending_type: head("ending_type").class_labels, shot_family: head("shot_family").class_labels };
+  const option = (h, i, lab) => `<button data-pick="${h}" data-i="${i}" aria-pressed="${S.picks[h] === i}">${esc(lab)}</button>`;
+
+  const panel = (h, extraTop = "") => {
+    const hd = head(h);
+    let body;
+    if (!p.eligible) body = `<p class="muted">No prediction: ${esc(p.ineligible_reason)}.</p>`;
+    else if (hiding) body = `<div class="opts" role="group" aria-label="Your pick: ${esc(hd.label)}">${labels[h].map((l, i) => option(h, i, l)).join("")}</div>${h === "shot_family" ? `<p class="small muted" style="margin-top:8px">Optional. Counted only if the possession ends in a shot.</p>` : ""}`;
+    else body = `${extraTop}${probRows(h, labels[h], p.pred[h], hit[h], rep.split, S.guess ? S.picks[h] : undefined)}`;
+    return `<div class="sheet"><h3>${esc(hd.label)}</h3>${hd.conditional_on ? `<p class="small muted" style="margin:0">If ${esc(hd.conditional_on)}.</p>` : ""}${body}</div>`;
+  };
+  const canReveal = S.picks.finisher !== undefined && S.picks.ending_type !== undefined;
+
+  $("#view").innerHTML = `
+  <div class="pagehead"><div><h2>Game replay</h2>
+    <p class="muted">${SPLIT[rep.split]}. The models never trained on this game.</p></div>
+    <label class="small">Game<br><select class="btn" id="game">${games.map((g) => `<option value="${g.game_id}" ${g.game_id === S.gameId ? "selected" : ""}>${day(g.tipoff_utc)}: ${esc(team(g.away.team_id).tricode)} ${g.away.score} at ${esc(team(g.home.team_id).tricode)} ${g.home.score}</option>`).join("")}</select></label></div>
+
+  <div class="scorebug" aria-label="Score before this possession">
+    <div class="side away ${p.off_team_id === rep.away_team_id ? "has" : ""}"><span>${esc(away.tricode)}</span><span>${p.away_score}</span></div>
+    <div class="mid"><b>${periodName(p.period)} ${clock(p.clock_s)}</b>${esc(off.tricode)} ball</div>
+    <div class="side ${p.off_team_id === rep.home_team_id ? "has" : ""}"><span>${p.home_score}</span><span>${esc(home.tricode)}</span></div>
+  </div>
+  <div class="stepper">
+    <button class="btn" id="prev" ${S.idx === 0 ? "disabled" : ""}>Previous</button>
+    <input type="range" id="scrub" min="0" max="${n - 1}" value="${S.idx}" aria-label="Possession">
+    <button class="btn primary" id="next" ${S.idx === n - 1 ? "disabled" : ""}>Next</button>
+    <span class="small muted">Possession ${S.idx + 1} of ${n}</span>
+  </div>
+  <ul class="ctx" aria-label="Situation before the possession">
+    <li>${START[p.start_type]}</li>
+    ${p.after_timeout ? `<li class="on">After a timeout</li>` : ""}${p.def_in_penalty ? `<li class="on">Defense in the penalty</li>` : ""}
+    <li>${p.home_score === p.away_score ? "Tied" : `${esc(off.tricode)} ${(p.off_team_id === rep.home_team_id) === (p.home_score > p.away_score) ? "up" : "down"} ${Math.abs(p.home_score - p.away_score)}`}</li>
+  </ul>
+
+  <div class="sheet" style="margin-bottom:18px">
+    <div class="guessbar">
+      <label class="switch"><input type="checkbox" id="guess" ${S.guess ? "checked" : ""}> Guess before the model</label>
+      ${hiding ? `<button class="btn primary" id="reveal" ${canReveal ? "" : "disabled"}>Show the model</button>` : ""}
+      ${HEADS.some((h) => S.tally[h].n) ? `<button class="btn" id="reset">Reset my tally</button>` : ""}
+      <ul class="key"><li><i class="k-model"></i>model</li><li><i class="k-base"></i>baseline</li><li><i class="k-actual"></i>what happened</li></ul>
+    </div>
+    ${S.guess ? tallyTable() : ""}
+    <div aria-live="polite">${hiding ? `<div class="outcome none">The outcome and the model's numbers are hidden until you pick.</div>` : `<div class="outcome${p.eligible ? "" : " none"}">${esc(actualText(p))}</div>`}</div>
+  </div>
+
+  <div class="heads">
+    ${panel("finisher")}${panel("ending_type")}
+    ${panel("shot_family", p.eligible && !hiding ? court(p.pred.shot_family.model, a.ending_type === "shot" ? a.shot_family : null, "Model probability by shot zone") : "")}
+  </div>
+  ${hiding ? `<p style="margin-top:16px"><button class="btn primary" id="reveal2" ${canReveal ? "" : "disabled"}>Show the model</button> <span class="small muted">${canReveal ? "" : "Pick a finisher and an ending first."}</span></p>` : ""}`;
+
+  const go = (i) => { S.idx = i; S.picks = {}; S.revealed = false; render(); };
+  $("#prev").addEventListener("click", () => go(S.idx - 1));
+  $("#next").addEventListener("click", () => go(S.idx + 1));
+  $("#scrub").addEventListener("change", (e) => go(Number(e.target.value)));
+  $("#game").addEventListener("change", (e) => { S.gameId = e.target.value; go(0); });
+  $("#guess").addEventListener("change", (e) => { S.guess = e.target.checked; S.picks = {}; S.revealed = false; render(); });
+  document.querySelectorAll("[data-pick]").forEach((b) => b.addEventListener("click", () => {
+    const h = b.dataset.pick, i = Number(b.dataset.i);
+    if (S.picks[h] === i) delete S.picks[h]; else S.picks[h] = i;
+    render();
+  }));
+  for (const rv of [$("#reveal"), $("#reveal2")]) if (rv) rv.addEventListener("click", () => { scoreGuess(key, p); S.revealed = true; render(); });
+  const rs = $("#reset");
+  if (rs) rs.addEventListener("click", () => { for (const h of HEADS) S.tally[h] = { n: 0, you: 0, model: 0, baseline: 0 }; S.scored.clear(); render(); });
+}
+
+// ---------- view: scorecard ----------
+function reliabilityPlot(rel, title) {
+  const x = (v) => 38 + v * 210, y = (v) => 218 - v * 210;
+  const maxN = Math.max(1, ...rel.model.bins.map((b) => b.n));
+  const marks = (bins, model) => bins.filter((b) => b.n).map((b) => {
+    const se = Math.sqrt((b.obs_rate * (1 - b.obs_rate)) / b.n), lo = Math.max(0, b.obs_rate - 1.96 * se), hi = Math.min(1, b.obs_rate + 1.96 * se);
+    const cx = x(b.mean_pred).toFixed(1), col = model ? "#2447D6" : "#6E7580";
+    const whisker = `<line x1="${cx}" x2="${cx}" y1="${y(lo).toFixed(1)}" y2="${y(hi).toFixed(1)}" stroke="${col}" stroke-width="1.5"/>`;
+    const tip = `<title>${model ? "Model" : "Baseline"}: predicted ${pct(b.mean_pred, 1)}, observed ${pct(b.obs_rate, 1)}, n = ${int(b.n)}</title>`;
+    if (model) return `${whisker}<circle cx="${cx}" cy="${y(b.obs_rate).toFixed(1)}" r="${(3 + 4 * Math.sqrt(b.n / maxN)).toFixed(1)}" fill="${col}" stroke="#fff" stroke-width="1.5">${tip}</circle>`;
+    return `${whisker}<rect x="${(cx - 4).toFixed(1)}" y="${(y(b.obs_rate) - 4).toFixed(1)}" width="8" height="8" fill="#fff" stroke="${col}" stroke-width="2">${tip}</rect>`;
+  }).join("");
+  const grid = [0, 0.25, 0.5, 0.75, 1].map((v) => `<line class="grid" x1="${x(v)}" x2="${x(v)}" y1="${y(0)}" y2="${y(1)}"/><line class="grid" x1="${x(0)}" x2="${x(1)}" y1="${y(v)}" y2="${y(v)}"/><text x="${x(v)}" y="234" text-anchor="middle">${v * 100}</text><text x="32" y="${y(v) + 4}" text-anchor="end">${v * 100}</text>`).join("");
+  return `<svg class="rel" viewBox="0 0 260 256" role="img" aria-label="${esc(title)}">${grid}
+    <line class="diag" x1="${x(0)}" y1="${y(0)}" x2="${x(1)}" y2="${y(1)}"/>${marks(rel.baseline.bins, false)}${marks(rel.model.bins, true)}
+    <text x="143" y="251" text-anchor="middle">predicted probability, %</text><text x="10" y="113" text-anchor="middle" transform="rotate(-90 10 113)">observed, %</text></svg>`;
+}
+
+function renderScorecard() {
+  const sc = S.scorecard, lvl = Math.round(sc.interval_level * 100), synth = sc.data_kind === "synthetic";
+  const V = { model_better: "Model ahead", baseline_better: "Baseline ahead", inconclusive: "No clear difference" };
+  const f = (m) => `<td>${m.log_loss.toFixed(4)}</td><td>${m.interval[0].toFixed(4)} to ${m.interval[1].toFixed(4)}</td>`;
+  const block = (h, s) => {
+    if (!s.available) return `<div class="splitname"><h3>${SPLIT[s.split]}</h3></div><p class="note plain">Not available: ${esc(s.reason)}.</p>`;
+    const sign = (v) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v).toFixed(4)}`;
+    const bins = (r) => r.bins.filter((b) => b.n).map((b) => `<tr><td>${Math.round(b.lo * 100)}–${Math.round(b.hi * 100)}%</td><td>${pct(b.mean_pred, 1)}</td><td>${pct(b.obs_rate, 1)}</td><td>${int(b.n)}</td></tr>`).join("");
+    return `<div class="splitname"><h3>${SPLIT[s.split]}</h3><span class="verdict ${s.verdict}">${V[s.verdict]}</span></div>
+    <div class="sc"><div>
+      <table><thead><tr><th>Log-loss, lower is better</th><th>Value</th><th>${lvl}% interval</th></tr></thead><tbody>
+        <tr><th>Model</th>${f(s.model)}</tr><tr><th>Baseline</th>${f(s.baseline)}</tr>
+        <tr><th>Model minus baseline</th><td>${sign(s.delta.log_loss)}</td><td>${sign(s.delta.interval[0])} to ${sign(s.delta.interval[1])}</td></tr></tbody></table>
+      <p class="small muted" style="margin-top:10px">${int(s.n_possessions)} possessions in ${int(s.n_games)} games. Top pick right: model ${pct(s.top1.model, 1)}, baseline ${pct(s.top1.baseline, 1)} (n = ${int(s.top1.n)}).
+        Average calibration gap: model ${pct(s.reliability.model.ece, 1)}, baseline ${pct(s.reliability.baseline.ece, 1)}.</p>
+      <details><summary>Calibration table</summary>
+        <table><thead><tr><th>Model band</th><th>Mean predicted</th><th>Observed</th><th>n</th></tr></thead><tbody>${bins(s.reliability.model)}</tbody></table>
+        <table><thead><tr><th>Baseline band</th><th>Mean predicted</th><th>Observed</th><th>n</th></tr></thead><tbody>${bins(s.reliability.baseline)}</tbody></table></details>
+    </div><div>${reliabilityPlot(s.reliability, `Calibration for ${head(h.head).label}, ${SPLIT[s.split]}`)}
+      <ul class="key" style="justify-content:center"><li><i class="k-model" style="width:10px;border-radius:50%"></i>model</li><li><i style="width:9px;height:9px;border:2px solid #6E7580"></i>baseline</li><li>bars: ${lvl}% range of the observed rate</li></ul></div></div>`;
+  };
+  $("#view").innerHTML = `
+  <div class="pagehead"><div><h2>Scorecard</h2>
+    <p class="muted">Each prediction against its baseline on games the models never saw. A verdict needs the whole ${lvl}% interval of the difference on one side of zero.</p></div></div>
+  ${synth ? `<p class="note">These numbers come from simulated games. "Model ahead" here shows the evaluation runs end to end; it is not evidence the model beats its baseline on NBA data.</p>` : ""}
+  ${sc.heads.map((h) => `<div class="sheet"><h2 style="margin-bottom:4px">${esc(head(h.head).label)}</h2>
+    <p class="small muted">Baseline: ${esc(head(h.head).baseline)}.${head(h.head).conditional_on ? ` Scored only when ${esc(head(h.head).conditional_on)}.` : ""}</p>
+    ${h.splits.map((s) => block(h, s)).join("")}</div>`).join("")}
+  <p class="note plain">Intervals: ${esc(sc.bootstrap)}. Calibration pools every class: each dot is a band of predicted probabilities and how often those calls came true.</p>`;
+}
+
+// ---------- routing and boot ----------
+const RENDER = { method: renderMethod, team: renderTeam, replay: renderReplay, scorecard: renderScorecard };
+let lastView = null;
+
+async function render() {
+  const view = VIEWS.includes(location.hash.slice(1)) ? location.hash.slice(1) : "method";
+  document.querySelectorAll(".tabs a").forEach((a) => (a.dataset.view === view ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current")));
+  document.title = `${{ method: "Method", team: "Team report", replay: "Replay", scorecard: "Scorecard" }[view]} | Tendency Board`;
+  const keep = view === lastView ? window.scrollY : 0;
+  try { await RENDER[view](); } catch (e) { showError(e); }
+  if (view !== lastView) { lastView = view; window.scrollTo(0, 0); } else window.scrollTo(0, keep);
+}
+
+async function boot() {
+  const top = document.querySelector(".top");
+  const setTop = () => document.querySelector("#tape").style.setProperty("top", `${top.offsetHeight}px`);
+  setTop();
+  window.addEventListener("resize", setTop);
+  try {
+    await Promise.all(SCHEMAS.map(async (n) => {
+      const res = await fetch(`${DATA}schemas/${n}.schema.json`);
+      if (!res.ok) throw new Error(`Could not load the ${n} schema (HTTP ${res.status}). The data folder is missing or incomplete; run the pipeline's export step.`);
+      S.schemas[n] = await res.json();
+    }));
+    S.manifest = await getJSON("manifest.json", "manifest");
+    const f = S.manifest.files;
+    [S.teams, S.games, S.scorecard] = await Promise.all([getJSON(f.teams, "teams"), getJSON(f.games, "games"), getJSON(f.scorecard, "scorecard")]);
+    for (const d of [S.teams, S.games, S.scorecard]) if (d.data_kind !== S.manifest.data_kind) throw new ContractProblem("Files disagree about whether the data is synthetic or real.");
+  } catch (e) { showError(e); return; }
+  S.teams.byId = new Map(S.teams.teams.map((t) => [t.team_id, t]));
+  S.teams.players = new Map(S.teams.teams.flatMap((t) => t.players.map((p) => [p.player_id, p.name])));
+  if (S.manifest.data_kind === "synthetic") {
+    const tape = $("#tape");
+    tape.hidden = false;
+    tape.innerHTML = `<strong>Synthetic sample data</strong> Placeholder teams and players. Every number on this page is simulated. Not NBA results.`;
+  }
+  $("#foot").textContent = `Data ${S.manifest.data_kind}, exported ${day(S.manifest.generated_at)}. Contract version ${S.manifest.contract_version}. Built from public play-by-play; not affiliated with the NBA.`;
+  window.addEventListener("hashchange", render);
+  document.addEventListener("keydown", (e) => {
+    if (lastView !== "replay" || e.altKey || e.metaKey || e.ctrlKey || /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
+    if (e.key === "ArrowRight") { const b = $("#next"); if (b && !b.disabled) b.click(); }
+    if (e.key === "ArrowLeft") { const b = $("#prev"); if (b && !b.disabled) b.click(); }
+  });
+  await render();
+  if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
+    try { await navigator.serviceWorker.register("sw.js"); } catch (e) { /* not available in this frame; the app works without it */ }
+  }
+}
+
+boot();

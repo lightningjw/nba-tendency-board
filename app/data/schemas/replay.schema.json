@@ -1,0 +1,85 @@
+{
+  "$id": "replay.schema.json",
+  "title": "One held-out game, possession by possession, with model and baseline probabilities beside what happened",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["game_id", "data_kind", "season", "tipoff_utc", "split", "home_team_id", "away_team_id", "possessions"],
+  "properties": {
+    "game_id": {"type": "string"},
+    "data_kind": {"enum": ["synthetic", "real"]},
+    "season": {"type": "integer"},
+    "tipoff_utc": {"type": "string"},
+    "split": {"enum": ["holdout_games", "holdout_season"]},
+    "home_team_id": {"type": "integer"},
+    "away_team_id": {"type": "integer"},
+    "possessions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["idx", "period", "clock_s", "off_team_id", "def_team_id", "home_score", "away_score", "after_timeout", "start_type", "def_in_penalty", "off_lineup", "actual", "eligible", "ineligible_reason", "pred"],
+        "properties": {
+          "idx": {"type": "integer", "minimum": 0},
+          "period": {"type": "integer", "minimum": 1},
+          "clock_s": {"type": "number", "minimum": 0},
+          "off_team_id": {"type": "integer"},
+          "def_team_id": {"type": "integer"},
+          "home_score": {"type": "integer", "minimum": 0},
+          "away_score": {"type": "integer", "minimum": 0},
+          "after_timeout": {"type": "boolean"},
+          "start_type": {"enum": ["period_start", "made_basket", "def_rebound", "turnover", "free_throw", "other"]},
+          "def_in_penalty": {"type": "boolean"},
+          "off_lineup": {"type": "array", "items": {"type": "integer"}},
+          "actual": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["ending_type", "finisher_id", "shot_family", "shot_made", "points", "and_one", "n_off_reb"],
+            "properties": {
+              "ending_type": {"enum": ["shot", "foul_drawn", "turnover", "period_end", "unknown"]},
+              "finisher_id": {"type": ["integer", "null"]},
+              "shot_family": {"enum": ["rim", "paint", "midrange", "corner3", "above_break3", "heave", null]},
+              "shot_made": {"type": ["boolean", "null"]},
+              "points": {"type": "integer", "minimum": 0},
+              "and_one": {"type": "boolean"},
+              "n_off_reb": {"type": "integer", "minimum": 0}
+            }
+          },
+          "eligible": {"type": "boolean"},
+          "ineligible_reason": {"type": ["string", "null"]},
+          "pred": {
+            "type": ["object", "null"],
+            "additionalProperties": false,
+            "required": ["finisher", "ending_type", "shot_family"],
+            "properties": {
+              "finisher": {"$ref": "#/$defs/pair5"},
+              "ending_type": {"$ref": "#/$defs/pair3"},
+              "shot_family": {"$ref": "#/$defs/pair5"}
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "prob": {"type": "number", "minimum": 0, "maximum": 1},
+    "pair5": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model", "baseline"],
+      "properties": {
+        "model": {"type": "array", "items": {"$ref": "#/$defs/prob"}, "minItems": 5, "maxItems": 5},
+        "baseline": {"type": "array", "items": {"$ref": "#/$defs/prob"}, "minItems": 5, "maxItems": 5}
+      }
+    },
+    "pair3": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model", "baseline"],
+      "properties": {
+        "model": {"type": "array", "items": {"$ref": "#/$defs/prob"}, "minItems": 3, "maxItems": 3},
+        "baseline": {"type": "array", "items": {"$ref": "#/$defs/prob"}, "minItems": 3, "maxItems": 3}
+      }
+    }
+  }
+}

@@ -1,0 +1,100 @@
+{
+  "$id": "scorecard.schema.json",
+  "title": "Each head's log-loss and calibration against its baseline, on held-out games and a held-out season",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["data_kind", "generated_at", "interval_level", "bootstrap", "heads"],
+  "properties": {
+    "data_kind": {"enum": ["synthetic", "real"]},
+    "generated_at": {"type": "string"},
+    "interval_level": {"type": "number", "minimum": 0.5, "maximum": 0.999},
+    "bootstrap": {"type": "string"},
+    "heads": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["head", "splits"],
+        "properties": {
+          "head": {"enum": ["finisher", "ending_type", "shot_family"]},
+          "splits": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["split", "available", "reason", "n_possessions", "n_games", "model", "baseline", "delta", "verdict", "top1", "reliability"],
+              "properties": {
+                "split": {"enum": ["holdout_games", "holdout_season"]},
+                "available": {"type": "boolean"},
+                "reason": {"type": ["string", "null"]},
+                "n_possessions": {"type": "integer", "minimum": 0},
+                "n_games": {"type": "integer", "minimum": 0},
+                "model": {"$ref": "#/$defs/metric"},
+                "baseline": {"$ref": "#/$defs/metric"},
+                "delta": {"$ref": "#/$defs/metric"},
+                "verdict": {"enum": ["model_better", "baseline_better", "inconclusive", null]},
+                "top1": {
+                  "type": ["object", "null"],
+                  "additionalProperties": false,
+                  "required": ["model", "baseline", "n"],
+                  "properties": {
+                    "model": {"type": "number", "minimum": 0, "maximum": 1},
+                    "baseline": {"type": "number", "minimum": 0, "maximum": 1},
+                    "n": {"type": "integer", "minimum": 0}
+                  }
+                },
+                "reliability": {
+                  "type": ["object", "null"],
+                  "additionalProperties": false,
+                  "required": ["model", "baseline"],
+                  "properties": {
+                    "model": {"$ref": "#/$defs/reliability"},
+                    "baseline": {"$ref": "#/$defs/reliability"}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "metric": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["log_loss", "interval"],
+      "properties": {
+        "log_loss": {"type": "number"},
+        "interval": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2}
+      }
+    },
+    "reliability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ece", "bins"],
+      "properties": {
+        "ece": {"type": "number", "minimum": 0, "maximum": 1},
+        "bins": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["lo", "hi", "n", "mean_pred", "obs_rate"],
+            "properties": {
+              "lo": {"type": "number", "minimum": 0, "maximum": 1},
+              "hi": {"type": "number", "minimum": 0, "maximum": 1},
+              "n": {"type": "integer", "minimum": 0},
+              "mean_pred": {"type": ["number", "null"]},
+              "obs_rate": {"type": ["number", "null"]}
+            }
+          }
+        }
+      }
+    }
+  }
+}

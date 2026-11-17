@@ -1,0 +1,37 @@
+{
+  "$id": "teams.schema.json",
+  "title": "Teams and rosters seen in the covered games",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["data_kind", "teams"],
+  "properties": {
+    "data_kind": {"enum": ["synthetic", "real"]},
+    "teams": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["team_id", "tricode", "name", "n_games", "players"],
+        "properties": {
+          "team_id": {"type": "integer"},
+          "tricode": {"type": "string"},
+          "name": {"type": "string"},
+          "n_games": {"type": "integer", "minimum": 0},
+          "players": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["player_id", "name"],
+              "properties": {
+                "player_id": {"type": "integer"},
+                "name": {"type": "string"}
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,229 @@
+"""Features and baselines.
+
+Three kinds of column, and every model feature must be registered as exactly one:
+
+* context  - known from the play-by-play before the possession's deciding event
+             (clock, score, fouls, timeouts, how the possession started).
+* pregame  - aggregates over games that tipped off STRICTLY BEFORE this game.
+             Built in DuckDB with `b.tipoff < a.tipoff` joins, so nothing from the
+             same game or a later one can enter.
+* ingame   - counts over EARLIER possessions of the same game only.
+
+tests/test_leakage.py scrambles labels from a game onward (and from a possession
+onward) and fails if any pregame (or ingame) column moves.
+
+No feature describes a play call or a defensive coverage; play-by-play has neither.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import duckdb
+import numpy as np
+import pandas as pd
+import pyarrow as pa
+
+from .possessions import ENDING_CLASSES, SHOT_FAMILIES, START_TYPES
+
+M_TEAM = 200.0        # pseudo-possessions pulling a team's shares toward the league's
+M_PLAYER = 100.0      # pseudo-possessions pulling a player's usage toward 1/5
+M_PLAYER_MIX = 30.0   # pseudo-events pulling a player's mixes toward the league's
+PAST_SEASON_WEIGHT = 0.5
+
+E = [f"e_{c}" for c in ENDING_CLASSES]
+FA = [f"f_{c}" for c in SHOT_FAMILIES]
+
+CONTEXT = ["period", "start_clock_s", "game_secs_left", "margin_start", "off_is_home", "def_in_penalty",
+           "def_team_fouls_period", "off_team_fouls_period", "off_timeouts_left", "def_timeouts_left",
+           "after_timeout", "start_type_code", "clutch"]
+PREGAME_POSS = ([f"base_end_{c}" for c in ENDING_CLASSES] + [f"base_fam_{c}" for c in SHOT_FAMILIES]
+                + ["team_eff_n", "lineup_usage_sum"]
+                + [f"lineup_end_{c}" for c in ENDING_CLASSES] + [f"lineup_fam_{c}" for c in SHOT_FAMILIES])
+INGAME_POSS = ["ig_team_poss"] + [f"ig_end_{c}" for c in ENDING_CLASSES] + [f"ig_fam_{c}" for c in SHOT_FAMILIES]
+PREGAME_CAND = ["p_usage", "p_base", "p_eff_on", "p_usage_rank"] + [f"p_end_{c}" for c in ENDING_CLASSES]
+INGAME_CAND = ["ig_p_fin", "ig_p_on", "ig_p_last"]
+
+FEATURES = {
+    "ending_type": CONTEXT + PREGAME_POSS + INGAME_POSS,
+    "shot_family": CONTEXT + PREGAME_POSS + INGAME_POSS,
+    "finisher": CONTEXT + PREGAME_CAND + INGAME_CAND,
+}
+KIND = {**{c: "context" for c in CONTEXT},
+        **{c: "pregame" for c in PREGAME_POSS + PREGAME_CAND},
+        **{c: "ingame" for c in INGAME_POSS + INGAME_CAND}}
+
+
+@dataclass
+class Features:
+    poss: pd.DataFrame      # one row per model-eligible possession
+    cand: pd.DataFrame      # five rows per model-eligible possession (one per offensive player)
+
+
+def _sums(alias: str, cols: list[str], prefix: str, where: str = "") -> str:
+    flt = f" FILTER (WHERE {where})" if where else ""
+    return ", ".join(f"COALESCE(SUM({alias}.{c}){flt}, 0) AS {prefix}{c}" for c in cols)
+
+
+def pregame_tables(poss: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    """Team, league and player aggregates over strictly earlier games."""
+    cols = ["game_id", "season", "tipoff", "off_team_id", "off_lineup", "finisher_id", "ending_type",
+            "shot_family", "is_heave", "lineup_ok"]
+    con = duckdb.connect()
+    try:
+        con.register("p", pa.Table.from_pandas(poss[cols], preserve_index=False))
+        con.execute("CREATE TEMP TABLE e AS SELECT * FROM p WHERE ending_type IN ('shot','foul_drawn','turnover') AND NOT is_heave")
+        e_cases = ", ".join(f"SUM(CASE WHEN ending_type='{c}' THEN 1 ELSE 0 END) AS e_{c}" for c in ENDING_CLASSES)
+        f_cases = ", ".join(f"SUM(CASE WHEN shot_family='{c}' THEN 1 ELSE 0 END) AS f_{c}" for c in SHOT_FAMILIES)
+        con.execute(f"""CREATE TEMP TABLE tg AS
+            SELECT game_id, season, tipoff, off_team_id AS team_id, COUNT(*) AS n, {e_cases}, {f_cases}
+            FROM e GROUP BY game_id, season, tipoff, off_team_id""")
+        tcols = ["n"] + E + FA
+        team = con.execute(f"""
+            SELECT a.game_id, a.team_id, {_sums('b', tcols, 'tp_')}, {_sums('b', tcols, 'ts_', 'b.season = a.season')}
+            FROM (SELECT DISTINCT game_id, season, tipoff, off_team_id AS team_id FROM p) a
+            LEFT JOIN tg b ON b.team_id = a.team_id AND b.tipoff < a.tipoff
+            GROUP BY a.game_id, a.team_id""").df()
+        league = con.execute(f"""
+            SELECT a.game_id, {_sums('b', tcols, 'lp_')}
+            FROM (SELECT DISTINCT game_id, tipoff FROM p) a
+            LEFT JOIN tg b ON b.tipoff < a.tipoff
+            GROUP BY a.game_id""").df()
+        fe = ", ".join(f"SUM(CASE WHEN finisher_id = player_id AND ending_type='{c}' THEN 1 ELSE 0 END) AS e_{c}" for c in ENDING_CLASSES)
+        ff = ", ".join(f"SUM(CASE WHEN finisher_id = player_id AND shot_family='{c}' THEN 1 ELSE 0 END) AS f_{c}" for c in SHOT_FAMILIES)
+        con.execute(f"""CREATE TEMP TABLE pg AS
+            WITH x AS (SELECT game_id, season, tipoff, finisher_id, ending_type, shot_family, UNNEST(off_lineup) AS player_id
+                       FROM e WHERE lineup_ok)
+            SELECT game_id, season, tipoff, player_id, COUNT(*) AS on_floor,
+                   SUM(CASE WHEN finisher_id = player_id THEN 1 ELSE 0 END) AS fin, {fe}, {ff}
+            FROM x GROUP BY game_id, season, tipoff, player_id""")
+        pcols = ["on_floor", "fin"] + E + FA
+        player = con.execute(f"""
+            WITH a AS (SELECT DISTINCT game_id, season, tipoff, UNNEST(off_lineup) AS player_id FROM p)
+            SELECT a.game_id, a.player_id, {_sums('b', pcols, 'pp_')}, {_sums('b', pcols, 'ps_', 'b.season = a.season')}
+            FROM a LEFT JOIN pg b ON b.player_id = a.player_id AND b.tipoff < a.tipoff
+            GROUP BY a.game_id, a.player_id""").df()
+    finally:
+        con.close()
+    return {"team": team, "league": league, "player": player}
+
+
+def _eff(df: pd.DataFrame, season_prefix: str, all_prefix: str, col: str) -> pd.Series:
+    """Season-to-date count plus down-weighted earlier seasons."""
+    s, a = df[season_prefix + col].astype(float), df[all_prefix + col].astype(float)
+    return s + PAST_SEASON_WEIGHT * (a - s)
+
+
+def build_features(poss: pd.DataFrame) -> Features:
+    poss = poss.sort_values(["tipoff", "game_id", "poss_idx"]).reset_index(drop=True)
+    pt = pregame_tables(poss)
+
+    # ---- league shares before each game (Laplace-smoothed) -----------------------
+    lg = pt["league"].copy()
+    lg_shots = lg[[f"lp_{c}" for c in FA]].sum(axis=1)
+    for c in ENDING_CLASSES:
+        lg[f"L_end_{c}"] = (lg[f"lp_e_{c}"] + 1.0) / (lg["lp_n"] + len(ENDING_CLASSES))
+    for c in SHOT_FAMILIES:
+        lg[f"L_fam_{c}"] = (lg[f"lp_f_{c}"] + 1.0) / (lg_shots + len(SHOT_FAMILIES))
+    lg = lg[["game_id"] + [c for c in lg.columns if c.startswith("L_")]]
+
+    # ---- team baselines: shrunk season-to-date shares -----------------------------
+    tm = pt["team"].merge(lg, on="game_id")
+    n_eff = _eff(tm, "ts_", "tp_", "n")
+    shots_eff = sum(_eff(tm, "ts_", "tp_", c) for c in FA)
+    for c in ENDING_CLASSES:
+        tm[f"base_end_{c}"] = (_eff(tm, "ts_", "tp_", f"e_{c}") + M_TEAM * tm[f"L_end_{c}"]) / (n_eff + M_TEAM)
+    for c in SHOT_FAMILIES:
+        tm[f"base_fam_{c}"] = (_eff(tm, "ts_", "tp_", f"f_{c}") + M_TEAM * tm[f"L_fam_{c}"]) / (shots_eff + M_TEAM)
+    tm["team_eff_n"] = n_eff
+    tm = tm[["game_id", "team_id", "team_eff_n"] + [c for c in tm.columns if c.startswith("base_")]]
+
+    # ---- player pregame: usage and mixes -------------------------------------------
+    pl = pt["player"].merge(lg, on="game_id")
+    on_eff, fin_eff = _eff(pl, "ps_", "pp_", "on_floor"), _eff(pl, "ps_", "pp_", "fin")
+    pshots = sum(_eff(pl, "ps_", "pp_", c) for c in FA)
+    pl["p_usage"] = (fin_eff + M_PLAYER * 0.2) / (on_eff + M_PLAYER)
+    pl["p_eff_on"] = on_eff
+    for c in ENDING_CLASSES:
+        pl[f"p_end_{c}"] = (_eff(pl, "ps_", "pp_", f"e_{c}") + M_PLAYER_MIX * pl[f"L_end_{c}"]) / (fin_eff + M_PLAYER_MIX)
+    for c in SHOT_FAMILIES:
+        pl[f"p_fam_{c}"] = (_eff(pl, "ps_", "pp_", f"f_{c}") + M_PLAYER_MIX * pl[f"L_fam_{c}"]) / (pshots + M_PLAYER_MIX)
+    pl = pl[["game_id", "player_id", "p_usage", "p_eff_on"] + [f"p_end_{c}" for c in ENDING_CLASSES] + [f"p_fam_{c}" for c in SHOT_FAMILIES]]
+
+    # ---- context -------------------------------------------------------------------
+    df = poss.copy()
+    df["game_secs_left"] = np.where(df["period"] <= 4, (4 - df["period"]) * 720.0 + df["start_clock_s"], df["start_clock_s"])
+    df["start_type_code"] = df["start_type"].map({s: i for i, s in enumerate(START_TYPES)}).fillna(len(START_TYPES)).astype(int)
+    df["clutch"] = (df["period"] >= 4) & (df["start_clock_s"] <= 300) & (df["margin_start"].abs() <= 5)
+    for c in ("off_is_home", "def_in_penalty", "after_timeout", "clutch"):
+        df[c] = df[c].astype(int)
+
+    # ---- in-game running counts over EARLIER possessions (cumsum minus self) --------
+    counted = df["ending_type"].isin(ENDING_CLASSES) & ~df["is_heave"]
+    grp = [df["game_id"], df["off_team_id"]]
+    df["ig_team_poss"] = counted.astype(int).groupby(grp).cumsum() - counted.astype(int)
+    for c in ENDING_CLASSES:
+        ind = (counted & (df["ending_type"] == c)).astype(int)
+        df[f"ig_end_{c}"] = ind.groupby(grp).cumsum() - ind
+    for c in SHOT_FAMILIES:
+        ind = (counted & (df["shot_family"] == c)).astype(int)
+        df[f"ig_fam_{c}"] = ind.groupby(grp).cumsum() - ind
+
+    df = df.merge(tm, left_on=["game_id", "off_team_id"], right_on=["game_id", "team_id"], how="left").drop(columns="team_id")
+
+    # ---- candidates: one row per (possession, offensive player) ----------------------
+    # Built with integer keys and float32 columns: three seasons is ~3.7M candidate rows.
+    codes, uniq = pd.factorize(df["game_id"], sort=True)
+    df["gcode"] = codes.astype(np.int32)
+    ok = df[df["lineup_ok"]]
+    n = len(ok)
+    lineups = np.array(ok["off_lineup"].tolist(), dtype=np.int64).reshape(n, 5)
+    fin = ok["finisher_id"].astype("float64").fillna(-1).values.astype(np.int64)
+    ex = pd.DataFrame({
+        "gcode": np.repeat(ok["gcode"].values, 5), "poss_idx": np.repeat(ok["poss_idx"].values.astype(np.int32), 5),
+        "slot": np.tile(np.arange(5, dtype=np.int8), n), "player_id": lineups.ravel(),
+        "is_fin": (lineups == fin[:, None]).ravel().astype(np.int8),
+        "has_fin": np.repeat(fin >= 0, 5), "eligible": np.repeat(ok["model_eligible"].values, 5),
+    })
+    pl["gcode"] = pd.Categorical(pl["game_id"], categories=uniq).codes.astype(np.int32)
+    pcols = ["p_usage", "p_eff_on"] + [f"p_end_{c}" for c in ENDING_CLASSES] + [f"p_fam_{c}" for c in SHOT_FAMILIES]
+    pl32 = pl[["gcode", "player_id"] + pcols].astype({c: np.float32 for c in pcols})
+    ex = ex.merge(pl32, on=["gcode", "player_id"], how="left")
+    del pl32, lineups
+    key = [ex["gcode"], ex["poss_idx"]]
+    ex["p_base"] = (ex["p_usage"] / ex["p_usage"].groupby(key).transform("sum")).astype(np.float32)
+    ex["p_usage_rank"] = ex["p_usage"].groupby(key).rank(ascending=False, method="first").astype(np.float32)
+    ex = ex.sort_values(["gcode", "player_id", "poss_idx"], kind="stable")
+    pg = [ex["gcode"], ex["player_id"]]
+    ex["ig_p_on"] = ex.groupby(["gcode", "player_id"]).cumcount().astype(np.float32)
+    ex["ig_p_fin"] = (ex["is_fin"].astype(np.int32).groupby(pg).cumsum() - ex["is_fin"]).astype(np.float32)
+    ex["ig_p_last"] = ex["is_fin"].groupby(pg).shift(1).fillna(0).astype(np.float32)
+    ex = ex.sort_values(["gcode", "poss_idx", "slot"], kind="stable").reset_index(drop=True)
+
+    # ---- lineup aggregates (usage-weighted), one value per possession -------------------
+    first = np.arange(0, len(ex), 5)
+    la = pd.DataFrame({"gcode": ex["gcode"].values[first], "poss_idx": ex["poss_idx"].values[first],
+                       "lineup_usage_sum": ex["p_usage"].values.reshape(-1, 5).sum(axis=1)})
+    w = ex["p_base"].values.reshape(-1, 5)
+    for c in ENDING_CLASSES:
+        la[f"lineup_end_{c}"] = (w * ex[f"p_end_{c}"].values.reshape(-1, 5)).sum(axis=1)
+    for c in SHOT_FAMILIES:
+        la[f"lineup_fam_{c}"] = (w * ex[f"p_fam_{c}"].values.reshape(-1, 5)).sum(axis=1)
+    df = df.merge(la, on=["gcode", "poss_idx"], how="left")
+    del la, w
+
+    elig = df[df["model_eligible"]].sort_values(["gcode", "poss_idx"]).reset_index(drop=True)
+    keep = ["game_id", "poss_idx", "season", "tipoff", "off_team_id", "off_lineup", "finisher_id", "ending_type", "shot_family"]
+    poss_out = elig[keep + CONTEXT + PREGAME_POSS + INGAME_POSS].copy()
+
+    cand = ex[ex["eligible"].values].reset_index(drop=True)
+    del ex
+    if len(cand) != 5 * len(poss_out):
+        raise RuntimeError(f"candidate table has {len(cand)} rows for {len(poss_out)} possessions; expected five each")
+    cand_out = pd.DataFrame({"game_id": pd.Categorical.from_codes(cand["gcode"].values, categories=uniq),
+                             "poss_idx": cand["poss_idx"].values, "slot": cand["slot"].values, "player_id": cand["player_id"].values,
+                             "is_fin": cand["is_fin"].values, "has_fin": cand["has_fin"].values})
+    for c in CONTEXT:
+        cand_out[c] = np.repeat(elig[c].values.astype(np.float32), 5)
+    for c in PREGAME_CAND + INGAME_CAND:
+        cand_out[c] = cand[c].values
+    return Features(poss_out, cand_out)

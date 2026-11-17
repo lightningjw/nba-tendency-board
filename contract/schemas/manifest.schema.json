@@ -1,0 +1,106 @@
+{
+  "$id": "manifest.schema.json",
+  "title": "Tendency Board manifest (entry point the app loads first)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract_version", "generated_at", "data_kind", "notice", "coverage", "heads", "splits", "tendency_method", "quality", "field_names_verified", "not_built", "files"],
+  "properties": {
+    "contract_version": {"const": "1.0"},
+    "generated_at": {"type": "string"},
+    "data_kind": {"enum": ["synthetic", "real"]},
+    "notice": {"type": "string"},
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["seasons", "n_games", "n_possessions", "n_eligible", "first_tipoff_utc", "last_tipoff_utc"],
+      "properties": {
+        "seasons": {"type": "array", "items": {"type": "integer"}, "minItems": 1},
+        "n_games": {"type": "integer", "minimum": 1},
+        "n_possessions": {"type": "integer", "minimum": 1},
+        "n_eligible": {"type": "integer", "minimum": 0},
+        "first_tipoff_utc": {"type": "string"},
+        "last_tipoff_utc": {"type": "string"}
+      }
+    },
+    "heads": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label", "classes", "class_labels", "conditional_on", "baseline"],
+        "properties": {
+          "id": {"enum": ["finisher", "ending_type", "shot_family"]},
+          "label": {"type": "string"},
+          "classes": {"type": ["array", "null"], "items": {"type": "string"}},
+          "class_labels": {"type": ["array", "null"], "items": {"type": "string"}},
+          "conditional_on": {"type": ["string", "null"]},
+          "baseline": {"type": "string"}
+        }
+      }
+    },
+    "splits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rule", "train", "holdout_games", "holdout_season"],
+      "properties": {
+        "rule": {"type": "string"},
+        "train": {"$ref": "#/$defs/split"},
+        "holdout_games": {"$ref": "#/$defs/split"},
+        "holdout_season": {"$ref": "#/$defs/split"}
+      }
+    },
+    "tendency_method": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "final", "note", "interval_level"],
+      "properties": {
+        "id": {"type": "string"},
+        "label": {"type": "string"},
+        "final": {"type": "boolean"},
+        "note": {"type": "string"},
+        "interval_level": {"type": "number", "minimum": 0.5, "maximum": 0.999}
+      }
+    },
+    "quality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["n_possessions", "lineup_ok_rate", "n_anomalous_possessions", "n_heaves", "n_period_end"],
+      "properties": {
+        "n_possessions": {"type": "integer", "minimum": 0},
+        "lineup_ok_rate": {"type": "number", "minimum": 0, "maximum": 1},
+        "n_anomalous_possessions": {"type": "integer", "minimum": 0},
+        "n_heaves": {"type": "integer", "minimum": 0},
+        "n_period_end": {"type": "integer", "minimum": 0}
+      }
+    },
+    "field_names_verified": {"type": "boolean"},
+    "not_built": {"type": "array", "items": {"type": "string"}},
+    "files": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["teams", "games", "scorecard", "team_reports_dir", "replays_dir", "schemas_dir"],
+      "properties": {
+        "teams": {"type": "string"},
+        "games": {"type": "string"},
+        "scorecard": {"type": "string"},
+        "team_reports_dir": {"type": "string"},
+        "replays_dir": {"type": "string"},
+        "schemas_dir": {"type": "string"}
+      }
+    }
+  },
+  "$defs": {
+    "split": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["n_games", "n_possessions", "seasons"],
+      "properties": {
+        "n_games": {"type": "integer", "minimum": 0},
+        "n_possessions": {"type": "integer", "minimum": 0},
+        "seasons": {"type": "array", "items": {"type": "integer"}}
+      }
+    }
+  }
+}

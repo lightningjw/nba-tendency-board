@@ -1,0 +1,39 @@
+{
+  "$id": "games.schema.json",
+  "title": "Index of replayable games. Only held-out games are exported, so no replay shows in-sample predictions.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["data_kind", "games"],
+  "properties": {
+    "data_kind": {"enum": ["synthetic", "real"]},
+    "games": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["game_id", "season", "tipoff_utc", "split", "home", "away", "n_possessions", "n_eligible"],
+        "properties": {
+          "game_id": {"type": "string"},
+          "season": {"type": "integer"},
+          "tipoff_utc": {"type": "string"},
+          "split": {"enum": ["holdout_games", "holdout_season"]},
+          "home": {"$ref": "#/$defs/side"},
+          "away": {"$ref": "#/$defs/side"},
+          "n_possessions": {"type": "integer", "minimum": 0},
+          "n_eligible": {"type": "integer", "minimum": 0}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "side": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["team_id", "score"],
+      "properties": {
+        "team_id": {"type": "integer"},
+        "score": {"type": "integer", "minimum": 0}
+      }
+    }
+  }
+}
