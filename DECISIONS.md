@@ -122,3 +122,18 @@ Each was made without asking, per the build instructions. Reverse any of them fr
 49. **A `personId` with no player name is not a player** (bulk path): not on the roster, never a starter.
 50. **Debatable segmentation cases were listed, not changed** (ASSUMPTIONS.md, "Debatable"). Each moves a few
     possessions a season; none moves a scorecard number at the precision shown.
+
+### Step 1.3, real names
+51. **Team city and nickname come from a static 30-row table keyed by team id** (`tendency/teams.py`), built from
+    the mirror's matchups archives and checked against the team ids in all 3,690 games on disk. Not from memory.
+    The tricode still comes from each game's own feed, so a rebrand shows the tricode of the day.
+52. **Full player names come from the mirror's matchups archives** (`first_name`, `family_name` per `person_id`,
+    about 4 MB a season, 2017-18 onward). They cover all 802 players in the three seasons; the shot-detail archive
+    would miss anyone who never took a shot. Keyed by person id alone, so a traded player has one name.
+53. **Names are optional.** If the archive cannot be fetched the run carries on with "J. Tatum" and says so once.
+    `--no-full-names` skips it. Cached in `data/real/bulk/player_names.json`.
+54. **Derived boxscores carry a version.** `bulk` rewrites one made by an older version (or without names when
+    names are now available) and leaves the play-by-play beside it alone. No need to delete `data/real/raw`.
+55. **No contract change.** `teams.json` already carried `name` and player `name` as free strings.
+56. **Spelling follows the source.** The matchups archive has "Nikola Jokić" where the feed's short form has
+    "N. Jokic"; nine players differ only by diacritics. The full name wins.

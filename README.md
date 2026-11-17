@@ -29,7 +29,7 @@ python -m http.server 8000 -d app       # open http://localhost:8000
 python -m tendency bulk --seasons 2023 2024 2025
 ```
 
-That downloads whole seasons from `shufinskiy/nba_data` (about 19 MB each), rebuilds per-game files, builds
+That downloads whole seasons from `shufinskiy/nba_data` (about 19 MB each, plus 4 MB for full player names), rebuilds per-game files, builds
 possessions, features and models, and writes validated contract JSON to `app/data`. Three seasons take about
 five minutes and 4 GB of RAM. Reload the app; no front-end change is needed. Add `--out data/real_export` to
 keep the bundled synthetic sample in place. Archives exist from 2020 and are refreshed by their maintainer, not
@@ -84,6 +84,8 @@ tendency/             pipeline package
   models.py           splits, LightGBM per head, log-loss with game-bootstrap intervals, reliability
   tendencies.py       simple shrinkage estimate for the team report (labeled as such)
   export.py           writes and validates the contract JSON
+  bulk.py             whole seasons from the GitHub mirror; derives the boxscore the archive lacks
+  teams.py            the 30 franchises by team id (city, nickname)
   synth.py            synthetic raw games in the assumed feed shape
   verify_fields.py    checks assumptions against a real game
   stubs/              named placeholders for everything outside the MVP
