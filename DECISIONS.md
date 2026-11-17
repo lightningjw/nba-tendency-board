@@ -97,3 +97,12 @@ Each was made without asking, per the build instructions. Reverse any of them fr
 ## Housekeeping
 - The workspace held a few files from an earlier interrupted start (a `pipeline/tendency_board` skeleton and an
   older schema). I removed them and built on one layout.
+
+## Phase 1 finish (2026-11-16/17 session)
+
+### Step 1.1, CI
+42. **One workflow, one job, Python 3.12 and Node 22.** Runs pytest, the synthetic pipeline into `/tmp`, and both
+    contract validators on the fresh export. No matrix: one supported interpreter is enough for a solo project.
+43. **CI also validates the bundled `app/data`.** A contract change that forgets to regenerate the sample the
+    deployed app serves fails the build instead of failing in the browser.
+44. **No real data in CI.** The real path needs a 60 MB download and 4 GB of RAM; it stays a local check.
