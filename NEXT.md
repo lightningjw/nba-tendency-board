@@ -15,7 +15,7 @@
   scorecard is prospective (brief section 8). Not built; today's held-out season is retrospective.
 - 2026-27 games: not in the mirror yet as of this run.
 - Real team names and full player names (the bulk path has tricodes and "J. Tatum").
-- CI: a GitHub Actions workflow that runs `pytest` and `python -m tendency sample`.
+- ~~CI~~: done, `.github/workflows/ci.yml`.
 
 ## Stubs, and where each plugs in (`tendency/stubs/`)
 | Stub | Phase | Slots in at |

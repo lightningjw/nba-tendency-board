@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+# One run per branch; a newer push cancels the older run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install
+        run: pip install -e ".[dev]"
+      - name: Tests
+        run: pytest
+      - name: Synthetic pipeline end to end
+        run: python -m tendency sample --root /tmp/synthetic --out /tmp/export
+      - name: Contract, Python validator
+        run: python -m tendency validate /tmp/export
+      - name: Contract, the app's validator
+        run: node app/tools/check-contract.mjs /tmp/export
+      - name: Bundled sample still matches the contract
+        run: |
+          python -m tendency validate app/data
+          node app/tools/check-contract.mjs app/data
