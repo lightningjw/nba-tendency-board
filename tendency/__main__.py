@@ -49,6 +49,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--seasons", type=int, nargs="+", required=True, help="season start years, e.g. 2023 2024 2025")
     common(p, "data/real")
     p.add_argument("--download-only", action="store_true")
+    p.add_argument("--no-full-names", action="store_true", help="skip the matchups archives; players keep the feed's 'J. Tatum' form")
     p = sub.add_parser("verify-fields", help="check assumed feed names against one real game")
     p.add_argument("pbp")
     p.add_argument("box", nargs="?")
@@ -88,8 +89,9 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
         if a.cmd == "bulk":
             from .bulk import load_seasons
-            res = load_seasons(a.seasons, a.root)
-            print(f"bulk: wrote {res['written']} games, already had {res['skipped']}, failed {len(res['failed'])}")
+            res = load_seasons(a.seasons, a.root, full_names=not a.no_full_names)
+            print(f"bulk: wrote {res['written']} games, refreshed {res['refreshed']} boxscores, already had {res['skipped']}, "
+                  f"failed {len(res['failed'])}; full names for {res['named_players']} players")
             for f in res["failed"][:5]:
                 print(f"  ! {f['game_id']}: {f['error']}")
             if a.download_only:
