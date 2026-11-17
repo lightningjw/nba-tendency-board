@@ -110,7 +110,8 @@ lineup 86 -> 16 (all 16 are one game, `0022400061`, where the feed is missing a 
   integers; `bulk.py` converts them back. A field the mirror drops would not show up here.
 - **Bulk path stand-ins for the boxscore**: home/away from which score moves, tip time from the first action's
   `timeActual` (a few minutes after the scheduled tip), starters from who acts in period 1 before any sub-in.
-  Team names are tricodes and player names are "J. Tatum" style.
+  Team city and nickname come from a static table keyed by team id; full player names from the mirror's
+  matchups archives (all 802 players in 2023-26 found), with "J. Tatum" as the fallback.
 - **`off_timeouts_left`** still assumes 7 per game with no Q4 cap or overtime grants. `*_timeouts_used` is exact.
   Challenges count as a timeout used.
 - **Playoffs, play-in and cup games** are untested; only regular-season archives were loaded.

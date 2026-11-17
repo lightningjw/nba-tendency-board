@@ -14,7 +14,7 @@
 - Nightly job: pull yesterday's games, write timestamped predictions before tip-off, commit them, so the
   scorecard is prospective (brief section 8). Not built; today's held-out season is retrospective.
 - 2026-27 games: not in the mirror yet as of this run.
-- Real team names and full player names (the bulk path has tricodes and "J. Tatum").
+- ~~Real team names and full player names~~: done (`tendency/teams.py`, matchups archives).
 - ~~CI~~: done, `.github/workflows/ci.yml`.
 
 ## Stubs, and where each plugs in (`tendency/stubs/`)
