@@ -106,3 +106,19 @@ Each was made without asking, per the build instructions. Reverse any of them fr
 43. **CI also validates the bundled `app/data`.** A contract change that forgets to regenerate the sample the
     deployed app serves fails the build instead of failing in the browser.
 44. **No real data in CI.** The real path needs a 60 MB download and 4 GB of RAM; it stays a local check.
+
+### Step 1.2, hand-check tool and what it found
+45. **`inspect` lays raw actions under possessions by the first and last `actionNumber` each row consumed.** No
+    second pass over the game; what is printed is exactly what the segmenter saw. Actions between possessions
+    are marked `~`. Exit code 2 if points do not reconcile, so it can be scripted.
+46. **"Odd" means**: and-one, heave, retained free throw, technical points, lineup not five-a-side, unexplained
+    ending, horn, or two or more offensive rebounds.
+47. **A free throw with a keep-the-ball descriptor is never an and-one, except away-from-play after a made
+    basket.** Flagrant, clear-path and take fouls: the basket ends its possession and the free throws open the
+    next for the same team. Away-from-play after a basket: and-one by a teammate, possession ends. Two-shot
+    away-from-play: ordinary trip. Rule set by counting who had the ball next in 3,690 games (ASSUMPTIONS.md).
+48. **Rebounds never stop the and-one look-ahead.** Before a second shot there is nothing to rebound but a
+    free throw, so a rebound seen there is the dead-ball one after a technical.
+49. **A `personId` with no player name is not a player** (bulk path): not on the roster, never a starter.
+50. **Debatable segmentation cases were listed, not changed** (ASSUMPTIONS.md, "Debatable"). Each moves a few
+    possessions a season; none moves a scorecard number at the precision shown.

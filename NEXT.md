@@ -6,7 +6,7 @@
 
 ## Before publishing anything real
 1. Read NBA.com terms. Until then the real export stays local.
-2. Hand-check one real game's possession table against its box score.
+2. ~~Hand-check one real game~~: done with `python -m tendency inspect` on three games; see ASSUMPTIONS.md.
 3. Decide how current-season games arrive: the mirror is refreshed by its maintainer, the CDN refuses plain
    requests, and nba_api gets through with browser-like headers.
 
