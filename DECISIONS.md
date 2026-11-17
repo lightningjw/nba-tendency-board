@@ -137,3 +137,60 @@ Each was made without asking, per the build instructions. Reverse any of them fr
 55. **No contract change.** `teams.json` already carried `name` and player `name` as free strings.
 56. **Spelling follows the source.** The matchups archive has "Nikola Jokić" where the feed's short form has
     "N. Jokic"; nine players differ only by diacritics. The full name wins.
+
+### Step 1.4, prospective prediction log (design, written before the code)
+
+**The claim, exactly.** "The model and everything it was allowed to know were fixed before the game." Proof is a
+file committed before tip-off that names the frozen model by hash. It is not "these per-possession numbers were
+published before the game": score, fouls and the five on the floor do not exist before tip-off.
+
+57. **Source for 2026-27 games: wait for the mirror, and replay 2025-26 as if live to test the flow.** That was
+    the default given for this session. The mirror has no `cdnnba_2026` archive as of 2026-11-17. A script for
+    your own machine (`scripts/fetch_nba_api.py`) is written and unit-tested against a fake client but was never
+    run against nba.com, and nothing in this repo calls cdn.nba.com or stats.nba.com from the cloud.
+58. **Three commands.** `train --through D` freezes models on games up to D. `predict --date D` writes one file
+    per game before tip-off. `score --date D` scores the frozen model on that date's games once they are final.
+59. **What a pregame file holds** (`predictions/YYYY-MM-DD/<gameId>.json`, schema
+    `contract/schemas/prediction_log.schema.json`): when it was written; the frozen model's id, training cut-off
+    and SHA-256; the last game the inputs include; and for each team its projected five (the starters of its
+    most recent game), its baseline shares, and baseline and model probabilities for all three heads in four
+    fixed reference situations (opening tip; Q2 half court; after a timeout late and close; defense in the
+    penalty in Q4).
+60. **Reference situations are fake possessions pushed through the real feature code.** No second implementation
+    of the shrinkage formulas to drift. In-game counts are not knowable pregame: they are zero at the opening
+    tip (exact) and set to their pregame expectation elsewhere (team's usual possessions by that point times its
+    baseline shares; the projected five assumed on the floor). The file says so in `ingame_assumption`.
+61. **A game date is the US Eastern calendar date of tip-off.** UTC would split one night across two dates.
+62. **Scoring uses a day-start snapshot.** Every game on date D gets pregame features from games before D only,
+    not from an earlier game the same night. That is what could be known when the log was written, and it lets
+    `score` recompute each team's baseline and compare it with the logged one (`inputs_max_abs_diff`). It is
+    slightly stricter than the retrospective splits, which let a late game see that night's early games.
+63. **`score` only accepts the model the log names.** It recomputes the SHA-256 of the model files and refuses
+    on any mismatch, refuses a model whose training cut-off is not before the game date, and says so plainly
+    when the model on disk was created after the log was written. Retraining over an existing model id is
+    refused by `train` unless `--force`, for the same reason.
+64. **Models live under `data/<root>/models/`, not in git.** A model file is trained on NBA data; only its hash
+    is in the log. Keep the files: without them a log cannot be scored. LightGBM runs deterministically here,
+    so the same data and versions should rebuild the same file, but that is not guaranteed across machines.
+65. **`predict` refuses a date whose games are already on disk unless `--replay`**, and a replayed log is marked
+    `mode: "replay"` in every file and in the scorecard. The app labels a replay as a flow test, not as
+    prospective evidence. A live log written after tip-off is kept but counted as late and left out of the
+    prospective numbers.
+66. **Per-game sums, not per-possession rows, are what accumulates** (`predictions/scorecard_prospective.json`):
+    per head, the count, summed log-loss for model and baseline, top-pick hits, and calibration-bin sums. That
+    is enough to rebuild log-loss, the game-bootstrap interval and the reliability table exactly, and it holds
+    no play-by-play. Re-scoring a date replaces its games; it never double counts.
+67. **Each date folder also gets `SHA256SUMS`.** If the terms check says per-game files with real names should
+    not be public, committing only the checksum file still timestamps the log; the files can be shown later.
+    `score` verifies the checksums when the file is present.
+68. **Contract 1.1: `scorecard.json` gains an optional `prospective` block**, and the manifest accepts versions
+    1.0 and 1.1. An export without the block (any 1.0 export) still validates and the app shows the same
+    "nothing logged yet" state as an empty block. The retrospective `splits` are untouched.
+69. **The bundled synthetic sample ships with an empty prospective block.** Nothing has been logged before a
+    real game, and a simulated one on the public demo would read as more than it is. The populated view is
+    covered by a test that runs train, predict and score on synthetic games, and by the 2025-26 replay.
+70. **`evaluate()` was split into per-game sums plus one function that turns sums into the scorecard entry**, so
+    retrospective and prospective numbers come from the same arithmetic.
+71. **`nba_api` is not a project dependency.** The fetch script imports it lazily and tells you to
+    `pip install nba_api` on your own machine. It sends browser-like headers to reach the CDN; whether to use it
+    is the terms decision in step 1.0a.
