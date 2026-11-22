@@ -64,13 +64,22 @@ def _sums(alias: str, cols: list[str], prefix: str, where: str = "") -> str:
     return ", ".join(f"COALESCE(SUM({alias}.{c}){flt}, 0) AS {prefix}{c}" for c in cols)
 
 
-def pregame_tables(poss: pd.DataFrame) -> dict[str, pd.DataFrame]:
-    """Team, league and player aggregates over strictly earlier games."""
+def pregame_tables(poss: pd.DataFrame, only_games: list[str] | None = None) -> dict[str, pd.DataFrame]:
+    """Team, league and player aggregates over strictly earlier games.
+
+    `only_games` limits the games the aggregates are computed FOR (the left side of each join); the
+    history they are computed FROM is always every game in `poss`.
+    """
     cols = ["game_id", "season", "tipoff", "off_team_id", "off_lineup", "finisher_id", "ending_type",
             "shot_family", "is_heave", "lineup_ok"]
     con = duckdb.connect()
     try:
         con.register("p", pa.Table.from_pandas(poss[cols], preserve_index=False))
+        if only_games is None:
+            con.execute("CREATE TEMP VIEW target AS SELECT * FROM p")
+        else:
+            con.register("want", pa.table({"game_id": pa.array(sorted(set(only_games)), type=pa.string())}))
+            con.execute("CREATE TEMP VIEW target AS SELECT p.* FROM p JOIN want USING (game_id)")
         con.execute("CREATE TEMP TABLE e AS SELECT * FROM p WHERE ending_type IN ('shot','foul_drawn','turnover') AND NOT is_heave")
         e_cases = ", ".join(f"SUM(CASE WHEN ending_type='{c}' THEN 1 ELSE 0 END) AS e_{c}" for c in ENDING_CLASSES)
         f_cases = ", ".join(f"SUM(CASE WHEN shot_family='{c}' THEN 1 ELSE 0 END) AS f_{c}" for c in SHOT_FAMILIES)
@@ -80,12 +89,12 @@ def pregame_tables(poss: pd.DataFrame) -> dict[str, pd.DataFrame]:
         tcols = ["n"] + E + FA
         team = con.execute(f"""
             SELECT a.game_id, a.team_id, {_sums('b', tcols, 'tp_')}, {_sums('b', tcols, 'ts_', 'b.season = a.season')}
-            FROM (SELECT DISTINCT game_id, season, tipoff, off_team_id AS team_id FROM p) a
+            FROM (SELECT DISTINCT game_id, season, tipoff, off_team_id AS team_id FROM target) a
             LEFT JOIN tg b ON b.team_id = a.team_id AND b.tipoff < a.tipoff
             GROUP BY a.game_id, a.team_id""").df()
         league = con.execute(f"""
             SELECT a.game_id, {_sums('b', tcols, 'lp_')}
-            FROM (SELECT DISTINCT game_id, tipoff FROM p) a
+            FROM (SELECT DISTINCT game_id, tipoff FROM target) a
             LEFT JOIN tg b ON b.tipoff < a.tipoff
             GROUP BY a.game_id""").df()
         fe = ", ".join(f"SUM(CASE WHEN finisher_id = player_id AND ending_type='{c}' THEN 1 ELSE 0 END) AS e_{c}" for c in ENDING_CLASSES)
@@ -98,7 +107,7 @@ def pregame_tables(poss: pd.DataFrame) -> dict[str, pd.DataFrame]:
             FROM x GROUP BY game_id, season, tipoff, player_id""")
         pcols = ["on_floor", "fin"] + E + FA
         player = con.execute(f"""
-            WITH a AS (SELECT DISTINCT game_id, season, tipoff, UNNEST(off_lineup) AS player_id FROM p)
+            WITH a AS (SELECT DISTINCT game_id, season, tipoff, UNNEST(off_lineup) AS player_id FROM target)
             SELECT a.game_id, a.player_id, {_sums('b', pcols, 'pp_')}, {_sums('b', pcols, 'ps_', 'b.season = a.season')}
             FROM a LEFT JOIN pg b ON b.player_id = a.player_id AND b.tipoff < a.tipoff
             GROUP BY a.game_id, a.player_id""").df()
@@ -113,9 +122,14 @@ def _eff(df: pd.DataFrame, season_prefix: str, all_prefix: str, col: str) -> pd.
     return s + PAST_SEASON_WEIGHT * (a - s)
 
 
-def build_features(poss: pd.DataFrame) -> Features:
+def build_features(poss: pd.DataFrame, only_games: list[str] | None = None) -> Features:
+    """Features for every game in `poss`, or only for `only_games` (with all of `poss` as their history)."""
     poss = poss.sort_values(["tipoff", "game_id", "poss_idx"]).reset_index(drop=True)
-    pt = pregame_tables(poss)
+    pt = pregame_tables(poss, only_games)
+    if only_games is not None:
+        poss = poss[poss["game_id"].isin(set(only_games))].reset_index(drop=True)
+        if poss.empty:
+            raise ValueError("none of the requested games are in the possession table")
 
     # ---- league shares before each game (Laplace-smoothed) -----------------------
     lg = pt["league"].copy()

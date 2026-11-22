@@ -114,33 +114,74 @@ def row_log_loss(P: np.ndarray, y: np.ndarray) -> np.ndarray:
     return -np.log(np.clip(P[np.arange(len(y)), y], EPS, 1.0))
 
 
+def _bin_sums(P: np.ndarray, y: np.ndarray, codes: np.ndarray, n_games: int, n_bins: int = N_BINS) -> np.ndarray:
+    """Per game and probability band: [count, sum of predicted, sum of hits]. Shape (n_games, n_bins, 3).
+
+    Pooled one-vs-rest: every (probability, did-it-happen) pair across classes counts once.
+    """
+    k = P.shape[1]
+    p = P.ravel()
+    hit = (np.arange(k)[None, :] == y[:, None]).ravel().astype(float)
+    idx = np.minimum((p * n_bins).astype(int), n_bins - 1)
+    flat = np.repeat(codes, k) * n_bins + idx
+    size = n_games * n_bins
+    return np.stack([np.bincount(flat, minlength=size), np.bincount(flat, weights=p, minlength=size),
+                     np.bincount(flat, weights=hit, minlength=size)], axis=1).reshape(n_games, n_bins, 3)
+
+
+def game_sums(P_model: np.ndarray, P_base: np.ndarray, y: np.ndarray, game_ids: np.ndarray) -> list[dict]:
+    """Everything the scorecard needs from one head, reduced to one small record per game.
+
+    These records are what the prospective log accumulates (no possession rows), and what
+    `evaluate_sums` turns into log-loss, a game-bootstrap interval, top-pick accuracy and reliability.
+    """
+    if len(y) == 0:
+        return []
+    lm, lb = row_log_loss(P_model, y), row_log_loss(P_base, y)
+    codes, uniq = pd.factorize(game_ids)
+    n_games = len(uniq)
+    cnt = np.bincount(codes, minlength=n_games)
+    sm, sb = np.bincount(codes, weights=lm, minlength=n_games), np.bincount(codes, weights=lb, minlength=n_games)
+    tm = np.bincount(codes, weights=(P_model.argmax(1) == y).astype(float), minlength=n_games)
+    tb = np.bincount(codes, weights=(P_base.argmax(1) == y).astype(float), minlength=n_games)
+    bm, bb = _bin_sums(P_model, y, codes, n_games), _bin_sums(P_base, y, codes, n_games)
+    return [{"game_id": str(uniq[g]), "n": int(cnt[g]), "ll_model": float(sm[g]), "ll_base": float(sb[g]),
+             "top1_model": int(tm[g]), "top1_base": int(tb[g]),
+             "bins_model": [[int(b[0]), float(b[1]), float(b[2])] for b in bm[g]],
+             "bins_base": [[int(b[0]), float(b[1]), float(b[2])] for b in bb[g]]} for g in range(n_games)]
+
+
+def _reliability_from_bins(bins: np.ndarray) -> dict:
+    """bins: (n_bins, 3) of [count, sum predicted, sum hits], already summed over games."""
+    n_bins = len(bins)
+    edges = np.linspace(0, 1, n_bins + 1)
+    total = bins[:, 0].sum()
+    out, ece = [], 0.0
+    for b in range(n_bins):
+        n = int(bins[b, 0])
+        mp, ob = (float(bins[b, 1] / n), float(bins[b, 2] / n)) if n else (None, None)
+        if n:
+            ece += n / total * abs(mp - ob)
+        out.append({"lo": round(float(edges[b]), 2), "hi": round(float(edges[b + 1]), 2), "n": n,
+                    "mean_pred": None if mp is None else round(mp, 4), "obs_rate": None if ob is None else round(ob, 4)})
+    return {"ece": round(float(ece), 4), "bins": out}
+
+
 def reliability(P: np.ndarray, y: np.ndarray, n_bins: int = N_BINS) -> dict:
     """Pooled one-vs-rest reliability: every (probability, did-it-happen) pair across classes."""
-    p = P.ravel()
-    hit = (np.arange(P.shape[1])[None, :] == y[:, None]).ravel().astype(float)
-    edges = np.linspace(0, 1, n_bins + 1)
-    idx = np.minimum((p * n_bins).astype(int), n_bins - 1)
-    bins, ece = [], 0.0
-    for b in range(n_bins):
-        m = idx == b
-        n = int(m.sum())
-        mp, ob = (float(p[m].mean()), float(hit[m].mean())) if n else (None, None)
-        if n:
-            ece += n / len(p) * abs(mp - ob)
-        bins.append({"lo": round(float(edges[b]), 2), "hi": round(float(edges[b + 1]), 2), "n": n,
-                     "mean_pred": None if mp is None else round(mp, 4), "obs_rate": None if ob is None else round(ob, 4)})
-    return {"ece": round(float(ece), 4), "bins": bins}
+    return _reliability_from_bins(_bin_sums(P, y, np.zeros(len(y), dtype=np.int64), 1, n_bins)[0])
 
 
-def evaluate(P_model: np.ndarray, P_base: np.ndarray, y: np.ndarray, game_ids: np.ndarray, split: str) -> dict:
+def evaluate_sums(records: list[dict], split: str, empty_reason: str | None = None) -> dict:
+    """One scorecard entry from per-game sums (see `game_sums`). The bootstrap resamples whole games."""
     empty = {"split": split, "available": False, "reason": None, "n_possessions": 0, "n_games": 0, "model": None,
              "baseline": None, "delta": None, "verdict": None, "top1": None, "reliability": None}
-    if len(y) == 0:
-        return {**empty, "reason": "no held-out possessions in this split (the data covers a single season or too few games)"}
-    lm, lb = row_log_loss(P_model, y), row_log_loss(P_base, y)
-    codes, _ = pd.factorize(game_ids)
-    n_games = int(codes.max()) + 1
-    sm, sb, cnt = (np.bincount(codes, weights=v, minlength=n_games) for v in (lm, lb, np.ones(len(y))))
+    records = [r for r in records if r["n"] > 0]
+    if not records:
+        return {**empty, "reason": empty_reason or "no held-out possessions in this split (the data covers a single season or too few games)"}
+    cnt = np.array([r["n"] for r in records], dtype=float)
+    sm, sb = np.array([r["ll_model"] for r in records]), np.array([r["ll_base"] for r in records])
+    n_games, n_total = len(records), int(cnt.sum())
     rng = np.random.default_rng(SEED)
     draws = rng.integers(0, n_games, size=(N_BOOT, n_games))
     n = cnt[draws].sum(axis=1)
@@ -150,12 +191,19 @@ def evaluate(P_model: np.ndarray, P_base: np.ndarray, y: np.ndarray, game_ids: n
     def metric(point: float, boots: np.ndarray) -> dict:
         return {"log_loss": round(float(point), 5), "interval": [round(float(np.percentile(boots, lo)), 5), round(float(np.percentile(boots, hi)), 5)]}
 
-    delta = metric(lm.mean() - lb.mean(), bm - bb)
+    mean_m, mean_b = sm.sum() / n_total, sb.sum() / n_total
+    delta = metric(mean_m - mean_b, bm - bb)
     verdict = "model_better" if delta["interval"][1] < 0 else ("baseline_better" if delta["interval"][0] > 0 else "inconclusive")
-    return {"split": split, "available": True, "reason": None, "n_possessions": int(len(y)), "n_games": n_games,
-            "model": metric(lm.mean(), bm), "baseline": metric(lb.mean(), bb), "delta": delta, "verdict": verdict,
-            "top1": {"model": round(float((P_model.argmax(1) == y).mean()), 4), "baseline": round(float((P_base.argmax(1) == y).mean()), 4), "n": int(len(y))},
-            "reliability": {"model": reliability(P_model, y), "baseline": reliability(P_base, y)}}
+    top_m, top_b = sum(r["top1_model"] for r in records), sum(r["top1_base"] for r in records)
+    return {"split": split, "available": True, "reason": None, "n_possessions": n_total, "n_games": n_games,
+            "model": metric(mean_m, bm), "baseline": metric(mean_b, bb), "delta": delta, "verdict": verdict,
+            "top1": {"model": round(top_m / n_total, 4), "baseline": round(top_b / n_total, 4), "n": n_total},
+            "reliability": {"model": _reliability_from_bins(np.sum([r["bins_model"] for r in records], axis=0)),
+                            "baseline": _reliability_from_bins(np.sum([r["bins_base"] for r in records], axis=0))}}
+
+
+def evaluate(P_model: np.ndarray, P_base: np.ndarray, y: np.ndarray, game_ids: np.ndarray, split: str) -> dict:
+    return evaluate_sums(game_sums(P_model, P_base, y, game_ids), split)
 
 
 @dataclass
@@ -216,3 +264,63 @@ def run_models(feat: Features, log=print) -> ModelRun:
         preds[f"{head}_model"] = [np.round(v, 4).tolist() for v in Pm[held]]
         preds[f"{head}_baseline"] = [np.round(v, 4).tolist() for v in Pb[held]]
     return ModelRun(preds.reset_index(drop=True), heads_out, splits, rounds)
+
+
+# ---- frozen models for the prospective log (train once, save, predict later) ---------------
+def frozen_parts(games: pd.DataFrame) -> pd.Series:
+    """game_id -> train | valid for a model that is frozen and scored only on games played later.
+
+    No held-out split: the hold-out is the future. The latest 15% of games only pick the tree count.
+    """
+    g = games.drop_duplicates("game_id").sort_values(["tipoff", "game_id"])
+    part = pd.Series("train", index=g["game_id"].values, dtype=object)
+    n_valid = int(round(len(g) * VALID_GAME_FRACTION))
+    if n_valid:
+        part[g["game_id"].values[-n_valid:]] = "valid"
+    if (part == "train").sum() < MIN_TRAIN_GAMES:
+        raise NotEnoughData(f"only {(part == 'train').sum()} training games before the cut-off; need at least {MIN_TRAIN_GAMES}.")
+    return part
+
+
+def _head_inputs(feat: Features, head: str) -> tuple[pd.DataFrame, np.ndarray, np.ndarray, np.ndarray]:
+    """(X, baseline probabilities, label index, has-label mask) for one head. Finisher is per candidate row."""
+    poss, cand = feat.poss, feat.cand
+    if head == "finisher":
+        y = cand["is_fin"].values.reshape(-1, 5).argmax(axis=1)
+        return cand[FEATURES["finisher"]], cand["p_base"].values, y, poss["finisher_id"].notna().values
+    classes, prefix = (ENDING_CLASSES, "base_end_") if head == "ending_type" else (SHOT_FAMILIES, "base_fam_")
+    base = poss[[prefix + c for c in classes]].values
+    base = base / base.sum(axis=1, keepdims=True)
+    label = poss[head].map({c: i for i, c in enumerate(classes)})
+    return poss[FEATURES[head]].astype(np.float32), base, label.fillna(0).astype(int).values, label.notna().values
+
+
+def fit_frozen(feat: Features, log=print) -> dict[str, tuple[lgb.Booster, int]]:
+    """Fit the three heads on every game in `feat` (same parameters and baseline offsets as `run_models`)."""
+    poss, cand = feat.poss, feat.cand
+    if len(cand) != 5 * len(poss):
+        raise RuntimeError("candidate rows are not aligned with possession rows")
+    part = poss["game_id"].map(frozen_parts(poss[["game_id", "season", "tipoff"]])).values
+    out = {}
+    for head in ("ending_type", "shot_family"):
+        X, base, y, has = _head_inputs(feat, head)
+        out[head] = fit_multiclass(X, y, base, np.where(has, part, "unused"), base.shape[1])
+        log(f"train: {head}: {out[head][1]} rounds, {int((has & (part == 'train')).sum()):,} training possessions")
+    X, base, _, has = _head_inputs(feat, "finisher")
+    out["finisher"] = fit_binary(X, cand["is_fin"].values, base, np.where(cand["has_fin"].values, np.repeat(part, 5), "unused"))
+    log(f"train: finisher: {out['finisher'][1]} rounds, {int((has & (part == 'train')).sum()):,} training possessions")
+    return out
+
+
+def predict_heads(models: dict[str, tuple[lgb.Booster, int]], feat: Features) -> dict[str, dict]:
+    """Model and baseline probabilities for every row of `feat`, per head, plus labels where they exist."""
+    out = {}
+    for head in HEADS:
+        X, base, y, has = _head_inputs(feat, head)
+        bst, rounds = models[head]
+        if head == "finisher":
+            P, B = predict_finisher(bst, rounds, X, base), base.reshape(-1, 5)
+        else:
+            P, B = predict_multiclass(bst, rounds, X, base), base
+        out[head] = {"model": P, "baseline": B, "y": y, "has": has}
+    return out
