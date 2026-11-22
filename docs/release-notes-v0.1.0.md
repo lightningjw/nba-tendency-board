@@ -22,7 +22,7 @@ Tag after the six Phase 1 pull requests are merged: `git tag -a v0.1.0 -m "MVP" 
   been logged before a real game.
 - The tendency layer is a labeled stand-in, not the partial-pooling model.
 - The shot-location baseline ignores the lineup.
-- The cdn.nba.com path and `scripts/fetch_nba_api.py` have never run against nba.com.
+- The direct cdn.nba.com path (`run`, `ingest`) has never run against nba.com.
 - The public app shows simulated games; see `docs/terms-check.md`.
 
 ## Changed since the first real run (2026-11-16)
@@ -30,3 +30,6 @@ Tag after the six Phase 1 pull requests are merged: `git tag -a v0.1.0 -m "MVP" 
 - Four segmentation and lineup bugs fixed after reading real games: unexplained changes of possession 47 to 11,
   possessions without a clean lineup 86 to 16. Possession count 738,771 to 738,812. No scorecard number moved by
   more than 0.0003.
+- Shots at the hoop that the feed labels "Mid-Range" (7,480 of 657,380) are now rim shots. Shot-location log-loss
+  moved by about 0.012 for model and baseline alike; differences and verdicts held.
+- `scripts/fetch_nba_api.py` has now run against nba.com; the live feed has no shot `area`, handled by coordinates.

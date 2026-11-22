@@ -34,7 +34,8 @@ def verify(pbp_path: Path, box_path: Path | None = None) -> tuple[list[tuple[str
                  "TEAM_ID", "PERSON_ID", "SHOT_RESULT", "SCORE_HOME", "SCORE_AWAY", "AREA", "SHOT_DISTANCE", "X_LEGACY",
                  "Y_LEGACY", "FOUL_DRAWN_PERSON_ID", "ASSIST_PERSON_ID", "POSSESSION"):
         k = getattr(F, name)
-        add(k in keys, f"action key {k!r}", f"present on {keys.get(k, 0)}/{len(actions)} actions")
+        optional = name == "AREA"                         # absent from the live CDN feed; coordinates stand in (checked below)
+        add(True if k in keys else (None if optional else False), f"action key {k!r}", f"present on {keys.get(k, 0)}/{len(actions)} actions")
     try:
         parse_clock(actions[0].get(F.CLOCK))
         add(True, "clock parses as an ISO-8601 duration", str(actions[0].get(F.CLOCK)))
@@ -64,9 +65,16 @@ def verify(pbp_path: Path, box_path: Path | None = None) -> tuple[list[tuple[str
         f"{len(tech_ft)} technical FTs found, {tech_fouls} technical fouls in this game; if fouls > 0 and FTs == 0, fix TECHNICAL_MARKER")
     results = Counter(low(a, F.SHOT_RESULT) for a in actions if low(a, F.ACTION_TYPE) in (F.T_2PT, F.T_3PT))
     add(set(results) <= {"made", "missed"} and bool(results), "shotResult is 'Made' or 'Missed'", str(dict(results)))
-    areas = Counter(low(a, F.AREA) for a in actions if low(a, F.ACTION_TYPE) in (F.T_2PT, F.T_3PT))
-    unknown_areas = sorted(set(areas) - set(F.AREA_TO_FAMILY))
-    add(not unknown_areas and bool(areas), "every shot `area` value maps to a shot family", f"unmapped: {unknown_areas}; seen: {dict(areas)}")
+    shots = [a for a in actions if low(a, F.ACTION_TYPE) in (F.T_2PT, F.T_3PT)]
+    areas = Counter(low(a, F.AREA) for a in shots)
+    if set(areas) <= {""}:
+        # The live CDN feed has no `area` (seen 2026-11-21); season archives do. Coordinates then decide.
+        located = sum(isinstance(a.get(F.X_LEGACY), (int, float)) and isinstance(a.get(F.Y_LEGACY), (int, float)) for a in shots)
+        add(bool(shots) and located == len(shots), "no shot `area` in this file: every shot has legacy coordinates instead",
+            f"{located}/{len(shots)} shots have {F.X_LEGACY} and {F.Y_LEGACY}; shot family comes from coordinates")
+    else:
+        unknown_areas = sorted(set(areas) - set(F.AREA_TO_FAMILY))
+        add(not unknown_areas, "every shot `area` value maps to a shot family", f"unmapped: {unknown_areas}; seen: {dict(areas)}")
     per_period_start_subs = sum(1 for a in actions if low(a, F.ACTION_TYPE) == F.T_SUBSTITUTION and int(a.get(F.PERIOD) or 0) > 1
                                 and abs(parse_clock(a.get(F.CLOCK)) - F.REGULATION_PERIOD_SECONDS) < 0.01)
     add(None, "between-period substitutions are logged at the period start", f"{per_period_start_subs} such events (0 means the lineup repair heuristic is doing the work)")

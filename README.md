@@ -22,10 +22,10 @@ the first two seasons. Log-loss, lower is better; intervals are 95% from a boots
 |---|---|---|---|---|---|---|
 | Who finishes | late 2024-25, 492 games | 96,302 | 1.5675 | 1.5716 | -0.0041 (-0.0046 to -0.0035) | 28.9% vs 28.7% |
 | Who finishes | 2025-26, 1,230 games | 242,648 | 1.5668 | 1.5711 | -0.0043 (-0.0047 to -0.0040) | 29.0% vs 28.7% |
-| How it ends | late 2024-25, 492 games | 97,103 | 0.6859 | 0.6970 | -0.0111 (-0.0122 to -0.0100) | 77.1% vs 76.8% |
-| How it ends | 2025-26, 1,230 games | 244,406 | 0.7077 | 0.7194 | -0.0118 (-0.0125 to -0.0111) | 75.9% vs 75.6% |
-| Where the shot comes from | late 2024-25, 492 games | 74,571 | 1.4897 | 1.5119 | -0.0222 (-0.0240 to -0.0205) | 34.1% vs 31.5% |
-| Where the shot comes from | 2025-26, 1,230 games | 184,811 | 1.4933 | 1.5122 | -0.0189 (-0.0200 to -0.0180) | 34.2% vs 31.8% |
+| How it ends | late 2024-25, 492 games | 97,103 | 0.6860 | 0.6970 | -0.0111 (-0.0121 to -0.0099) | 77.1% vs 76.8% |
+| How it ends | 2025-26, 1,230 games | 244,406 | 0.7078 | 0.7194 | -0.0117 (-0.0124 to -0.0110) | 75.9% vs 75.6% |
+| Where the shot comes from | late 2024-25, 492 games | 74,571 | 1.4782 | 1.5010 | -0.0228 (-0.0246 to -0.0211) | 34.6% vs 31.6% |
+| Where the shot comes from | 2025-26, 1,230 games | 184,811 | 1.4801 | 1.4999 | -0.0197 (-0.0208 to -0.0187) | 34.9% vs 32.4% |
 
 The baselines: usage shares among the five on the floor (finisher), and the offense's season-to-date shares
 shrunk toward the league's (ending type, shot location), all from games that tipped off earlier. The models are
@@ -56,8 +56,10 @@ number.
 - **Lineups are inferred.** The season archives have no boxscore, so starters are the first five players to act
   and lineups follow from substitutions. Sixteen possessions (one game with a missing substitution) do not
   reconstruct to five a side and are left out.
-- **One data path is untested.** Everything real came from a public GitHub mirror of the feed. The direct
-  cdn.nba.com commands (`run`, `ingest`) and `scripts/fetch_nba_api.py` have never run against nba.com.
+- **Two data paths, one lightly tested.** The results above come from a public GitHub mirror of the feed.
+  `scripts/fetch_nba_api.py` has fetched 2026-27 games from nba.com and one passed `verify-fields`; the live feed
+  has no shot `area`, so shot location there comes from coordinates (99.6% agreement with `area` on 2023-26).
+  The direct cdn.nba.com commands (`run`, `ingest`) are still untested.
 
 More detail: `ASSUMPTIONS.md` (what was checked against real games and what was wrong), `DECISIONS.md` (every
 choice made along the way), `NEXT.md`.
