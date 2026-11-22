@@ -90,6 +90,23 @@ lineup 86 -> 16 (all 16 are one game, `0022400061`, where the feed is missing a 
 - **The 11 remaining unexplained changes** are jump balls after a challenge that hand the ball over with no
   turnover logged, and gaps in the feed (a miss, then the other team shooting, nothing between).
 
+## First real fetch with nba_api (2026-11-21, game `0022600001`)
+
+Run by the owner on his own machine. `verify-fields` passed everything except shot `area`:
+
+12. **The live CDN feed has no `area` on shots.** The season archives do. `xLegacy`, `yLegacy` and `shotDistance`
+    are there on every shot, so shot family comes from coordinates. The coordinate rule was retuned against
+    `area` on all 657,380 shots of 2023-26 (restricted area runs to 4.4 ft, corner threes end at y = 89.5) and now
+    agrees on 99.6%. `verify-fields` reports a missing `area` as a note, not a failure, when coordinates exist.
+13. **Wrong in every season, and fixed: shots at the hoop labeled "Mid-Range".** Tips, dunks and layups logged at
+    x = y = 0, distance 0, carry `area` "Mid-Range" 44% of the time (it follows which basket). 7,480 shots, 1.1%
+    of all shots and about one "midrange" label in nine, were dunks and tip-ins. They are now rim shots whatever
+    `area` says. Shot-location log-loss moved by about 0.012 for model and baseline alike; the difference between
+    them, and every verdict, held.
+- Also confirmed on that game: the real boxscore has five starters a side, 201 possessions, points reconcile
+  (234 of 234), lineups reconstruct on 100%, no unexplained changes, and the segmenter agrees with the feed's
+  own `possession` field on 102 of 102 made-shot and turnover endings.
+
 ## Verified from documentation only (nba_api docs, not a live file)
 
 - Endpoints: `cdn.nba.com/static/json/liveData/playbyplay/playbyplay_{gameId}.json` and

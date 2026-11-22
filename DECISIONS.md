@@ -217,3 +217,12 @@ published before the game": score, fouls and the five on the floor do not exist 
     margins are small; a card states that results are retrospective until logged ahead; the lineup card says
     starters are inferred when there is no boxscore. With real data the footer adds "Statistics from NBA.com".
 78. **No tag.** Draft notes are in `docs/release-notes-v0.1.0.md`.
+
+### After the first real fetch (2026-11-21)
+79. **A two-point shot logged exactly at the hoop is a rim shot whatever `area` says.** The feed labels 44% of
+    them "Mid-Range". This changes 7,480 training labels, so shot-location numbers in the README were rebuilt.
+80. **Coordinate rule retuned to the feed's own boundaries** (4.4 ft, y = 89.5), because for the live feed, which
+    has no `area`, it is the only rule. Constants live in `cdn_fields.py`.
+81. **`verify-fields` treats a missing `area` as a note when every shot has coordinates.**
+82. **Any model frozen before this change should be retrained**: its shot-location labels differ. None had been
+    used for a live log.
