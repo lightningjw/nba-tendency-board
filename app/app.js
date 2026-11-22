@@ -29,7 +29,7 @@ const team = (id) => S.teams.byId.get(id) || { tricode: String(id), name: String
 const player = (id) => S.teams.players.get(id) || `Player ${id}`;
 const head = (id) => S.manifest.heads.find((h) => h.id === id);
 const START = { period_start: "Start of period", made_basket: "After a made basket", def_rebound: "Off a defensive rebound", turnover: "Off a turnover", free_throw: "After free throws", other: "Other start" };
-const SPLIT = { holdout_games: "Held-out games, same seasons as training", holdout_season: "Held-out season" };
+const SPLIT = { holdout_games: "Held-out games, same seasons as training", holdout_season: "Held-out season", prospective: "Games logged before tip-off" };
 
 class ContractProblem extends Error {}
 
@@ -368,10 +368,25 @@ function renderScorecard() {
     </div><div>${reliabilityPlot(s.reliability, `Calibration for ${head(h.head).label}, ${SPLIT[s.split]}`)}
       <ul class="key" style="justify-content:center"><li><i class="k-model" style="width:10px;border-radius:50%"></i>model</li><li><i style="width:9px;height:9px;border:2px solid #6E7580"></i>baseline</li><li>bars: ${lvl}% range of the observed rate</li></ul></div></div>`;
   };
+  // Prospective results are optional in the contract (added in 1.1). A missing block and an empty one read the same.
+  const pro = sc.prospective || { available: false, mode: null, reason: "No predictions have been logged before tip-off yet", n_dates: 0, n_games: 0, n_late: 0, models: [], heads: [] };
+  const replayed = pro.mode === "replay";
+  const proHtml = pro.available
+    ? `<p class="prohead"><b>${int(pro.n_games)}</b> game${pro.n_games === 1 ? "" : "s"} on <b>${int(pro.n_dates)}</b> date${pro.n_dates === 1 ? "" : "s"}, ${day(pro.first_date)} to ${day(pro.last_date)}.
+        ${replayed ? "" : "Each game has a file written before tip-off that names the frozen model by hash; the commit time of that file is the proof."}
+        ${pro.n_late ? ` ${int(pro.n_late)} more ${pro.n_late === 1 ? "was" : "were"} logged after tip-off and ${pro.n_late === 1 ? "is" : "are"} left out.` : ""}</p>
+      ${replayed ? `<p class="note"><strong>Replay, not prospective evidence.</strong> These dates were replayed day by day from games already on disk: freeze a model, write the pregame files, then score. It shows the logging and scoring work. It does not show the model was fixed before the games were played.</p>` : ""}
+      <p class="small muted">Frozen model${pro.models.length === 1 ? "" : "s"}: ${pro.models.map((m) => `${esc(m.id)} (trained through ${day(m.trained_through)}, sha256 ${esc(m.sha256.slice(0, 12))})`).join("; ")}.
+        Each game is scored with pregame numbers from the morning of the game, so it cannot see another game from the same night.</p>
+      ${pro.heads.map((h) => `<h3 class="prohd">${esc(head(h.head).label)}</h3>${block(h, h.result)}`).join("")}`
+    : `<p class="note plain">${esc(pro.reason || "Nothing logged yet")}. Everything under "Looking back" was computed after the games were played, on games the models never trained on. It becomes prospective only when a prediction file is committed before tip-off and scored afterwards.</p>`;
   $("#view").innerHTML = `
   <div class="pagehead"><div><h2>Scorecard</h2>
     <p class="muted">Each prediction against its baseline on games the models never saw. A verdict needs the whole ${lvl}% interval of the difference on one side of zero.</p></div></div>
   ${synth ? `<p class="note">These numbers come from simulated games. "Model ahead" here shows the evaluation runs end to end; it is not evidence the model beats its baseline on NBA data.</p>` : ""}
+  <section class="sheet pro" aria-label="Prospective results"><h2 style="margin-bottom:4px">Logged before tip-off</h2>${proHtml}</section>
+  <h2 class="lookback">Looking back</h2>
+  <p class="muted" style="margin-top:0">Retrospective: held-out games and a held-out season, scored after the fact.</p>
   ${sc.heads.map((h) => `<div class="sheet"><h2 style="margin-bottom:4px">${esc(head(h.head).label)}</h2>
     <p class="small muted">Baseline: ${esc(head(h.head).baseline)}.${head(h.head).conditional_on ? ` Scored only when ${esc(head(h.head).conditional_on)}.` : ""}</p>
     ${h.splits.map((s) => block(h, s)).join("")}</div>`).join("")}
