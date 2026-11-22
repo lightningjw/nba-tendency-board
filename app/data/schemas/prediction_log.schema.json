@@ -1,0 +1,115 @@
+{
+  "$id": "prediction_log.schema.json",
+  "title": "One game's pregame log: the frozen model by hash, the inputs it was allowed, and what can be said before tip-off",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["log_version", "data_kind", "mode", "game_id", "game_date", "season", "created_at_utc", "scheduled_tipoff_utc",
+               "home_team_id", "away_team_id", "model", "inputs", "classes", "teams"],
+  "properties": {
+    "log_version": {"const": 1},
+    "data_kind": {"enum": ["synthetic", "real"]},
+    "mode": {"enum": ["live", "replay"]},
+    "game_id": {"type": "string"},
+    "game_date": {"type": "string"},
+    "season": {"type": "integer"},
+    "created_at_utc": {"type": "string"},
+    "scheduled_tipoff_utc": {"type": ["string", "null"]},
+    "home_team_id": {"type": "integer"},
+    "away_team_id": {"type": "integer"},
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "trained_through", "sha256", "files"],
+      "properties": {
+        "id": {"type": "string"},
+        "trained_through": {"type": "string"},
+        "sha256": {"type": "string"},
+        "files": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["finisher", "ending_type", "shot_family"],
+          "properties": {
+            "finisher": {"type": "string"},
+            "ending_type": {"type": "string"},
+            "shot_family": {"type": "string"}
+          }
+        }
+      }
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["snapshot", "history_through_utc", "n_history_games", "ingame_assumption"],
+      "properties": {
+        "snapshot": {"type": "string"},
+        "history_through_utc": {"type": "string"},
+        "n_history_games": {"type": "integer", "minimum": 1},
+        "ingame_assumption": {"type": "string"}
+      }
+    },
+    "classes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ending_type", "shot_family", "finisher"],
+      "properties": {
+        "ending_type": {"type": "array", "items": {"type": "string"}, "minItems": 3, "maxItems": 3},
+        "shot_family": {"type": "array", "items": {"type": "string"}, "minItems": 5, "maxItems": 5},
+        "finisher": {"type": "string"}
+      }
+    },
+    "teams": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["team_id", "tricode", "projected_from_game", "projected_five", "baseline", "situations"],
+        "properties": {
+          "team_id": {"type": "integer"},
+          "tricode": {"type": "string"},
+          "projected_from_game": {"type": "string"},
+          "projected_five": {
+            "type": "array",
+            "minItems": 5,
+            "maxItems": 5,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["player_id", "name"],
+              "properties": {"player_id": {"type": "integer"}, "name": {"type": "string"}}
+            }
+          },
+          "baseline": {"$ref": "#/$defs/probs"},
+          "situations": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "label", "model"],
+              "properties": {
+                "id": {"type": "string"},
+                "label": {"type": "string"},
+                "model": {"$ref": "#/$defs/probs"}
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "prob": {"type": "number", "minimum": 0, "maximum": 1},
+    "probs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["finisher", "ending_type", "shot_family"],
+      "properties": {
+        "finisher": {"type": "array", "items": {"$ref": "#/$defs/prob"}, "minItems": 5, "maxItems": 5},
+        "ending_type": {"type": "array", "items": {"$ref": "#/$defs/prob"}, "minItems": 3, "maxItems": 3},
+        "shot_family": {"type": "array", "items": {"$ref": "#/$defs/prob"}, "minItems": 5, "maxItems": 5}
+      }
+    }
+  }
+}

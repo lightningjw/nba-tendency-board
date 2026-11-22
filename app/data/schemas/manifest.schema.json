@@ -5,7 +5,7 @@
   "additionalProperties": false,
   "required": ["contract_version", "generated_at", "data_kind", "notice", "coverage", "heads", "splits", "tendency_method", "quality", "field_names_verified", "not_built", "files"],
   "properties": {
-    "contract_version": {"const": "1.0"},
+    "contract_version": {"enum": ["1.0", "1.1"]},
     "generated_at": {"type": "string"},
     "data_kind": {"enum": ["synthetic", "real"]},
     "notice": {"type": "string"},
