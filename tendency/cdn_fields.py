@@ -78,6 +78,16 @@ FOUL_DOUBLE = "double"               # foul descriptor; double fouls do not add 
 FT_RETAIN_DESCRIPTORS = {"flagrant", "clear-path", "transition take", "away-from-play"}
 FT_AWAY_FROM_PLAY = "away-from-play"   # keeps the ball only as a lone "1 of 1" with no made basket on the play
 FT_KEEP_BALL_DESCRIPTORS = FT_RETAIN_DESCRIPTORS - {FT_AWAY_FROM_PLAY}   # always keep the ball, even after a made basket
+# The live CDN feed (fetched with nba_api, 2026-27) leaves technical and away-from-play free throws unmarked;
+# the season archives mark them. The foul that awarded the free throw always says what it was:
+FT_TECHNICAL = "technical"
+FOUL_DESCRIPTOR_TO_FT = {            # foul descriptor -> the free throw descriptor the archives would carry
+    "away-from-play": "away-from-play",
+    "flagrant-type-1": "flagrant",
+    "flagrant-type-2": "flagrant",
+    "clear-path": "clear-path",
+    "transition take": "transition take",
+}
 
 # --- play-by-play: shot `area` values -> shot family --------------------------
 AREA_TO_FAMILY = {

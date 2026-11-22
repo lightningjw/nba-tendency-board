@@ -226,3 +226,12 @@ published before the game": score, fouls and the five on the floor do not exist 
 81. **`verify-fields` treats a missing `area` as a note when every shot has coordinates.**
 82. **Any model frozen before this change should be retrained**: its shot-location labels differ. None had been
     used for a live log.
+83. **A free throw's kind comes from its own markers, else from the foul that awarded it** (`free_throw_kinds`).
+    Technical fouls owe one "1 of 1"; away-from-play, flagrant, clear-path and transition-take fouls owe a trip;
+    double fouls owe nothing; a debt holds only at its own period and clock; marked free throws are paid first.
+    Needed because the live CDN feed leaves technical and away-from-play free throws unmarked.
+84. **The cached possession table is rebuilt when the segmentation code is newer than it**, not only when raw
+    files are. Otherwise a `git pull` that changes the rules would leave `train`, `predict` and `score` on old rows.
+85. **The model frozen before this fix stays frozen.** `through-2026-11-20` has pregame files naming it; it is
+    not retrained. Its 2026-27 training rows had this defect (well under 0.1% of its training possessions).
+    Scoring uses the corrected rows, so `score` will report a small baseline drift for logs written before the fix.

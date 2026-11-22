@@ -43,6 +43,8 @@ INGAME_ASSUMPTION = ("In-game counts cannot be known before tip-off. They are ze
                      "situations they are set to their pregame expectation: the league's average possessions per team by that point "
                      "of a game, split by the team's baseline shares, with the projected five assumed on the floor throughout.")
 EMPTY_REASON = "No predictions have been logged before tip-off yet"
+_PKG = Path(__file__).resolve().parent
+SEGMENTER_SOURCES = [_PKG / "possessions.py", _PKG / "cdn_fields.py", _PKG / "bulk.py"]   # a change here changes the possession table
 
 # Four fixed situations. Context values are what the features need; nothing here is a play call.
 SITUATIONS = [
@@ -106,9 +108,10 @@ def load_history(root: Path, log=print) -> tuple[pd.DataFrame, dict[str, dict]]:
     if not stale:
         built = min(pq.stat().st_mtime, gj.stat().st_mtime)
         newest = max((e.stat().st_mtime for d in (pbp_dir, box_dir) if d.exists() for e in os.scandir(d)), default=0.0)
-        stale = newest > built
+        code = max(f.stat().st_mtime for f in SEGMENTER_SOURCES if f.exists())       # a `git pull` that changes the rules
+        stale = newest > built or code > built
     if stale:
-        log("history: raw files are newer than the possession table; rebuilding it")
+        log("history: raw files or the segmentation code are newer than the possession table; rebuilding it")
         build_possessions(root, log)
     poss = pd.read_parquet(pq)
     games = {g["game_id"]: g for g in json.loads(gj.read_text())}

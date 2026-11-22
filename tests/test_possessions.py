@@ -8,7 +8,7 @@ import pytest
 from tendency import cdn_fields as F
 from tendency.possessions import FeedShapeError, parse_clock, segment_game, shot_family
 
-from conftest import AWAY, HOME, make_box
+from conftest import AWAY, HOME, Game, make_box
 
 
 def seg(game, box):
@@ -344,3 +344,53 @@ def test_coordinate_rule_matches_the_feeds_own_boundaries():
     assert shot_family({**three, F.X_LEGACY: 225, F.Y_LEGACY: 89}) == "corner3"
     assert shot_family({**three, F.X_LEGACY: 225, F.Y_LEGACY: 90}) == "above_break3"
     assert shot_family({**two, F.SHOT_DISTANCE: 4.3}) == "rim" and shot_family({**two, F.SHOT_DISTANCE: 6}) == "paint"
+
+
+# ---- the live CDN feed leaves technical and away-from-play free throws unmarked (first seen in fetched 2026-27 games) ----
+def test_unmarked_technical_free_throw_is_read_from_the_technical_foul(game, box):
+    """Game 0022600124: a delay technical in the middle of a three-shot trip. The other team's "1 of 1" has no marker."""
+    game.start().shot(700, HOME, 101, made=False).reb(698, HOME, 102, offensive=True) \
+        .foul(694, AWAY, 201, drawn=103, descriptor="shooting") \
+        .ft(694, HOME, 103, 1, 3, made=False).ev("rebound", 694, "offensive", HOME) \
+        .ft(694, HOME, 103, 2, 3, made=True) \
+        .foul(694, HOME, 0, sub="technical", descriptor="delay") \
+        .ft(694, AWAY, 204, 1, 1, made=True) \
+        .ft(694, HOME, 103, 3, 3, made=True).shot(685, AWAY, 202, made=False, three=True).reb(683, HOME, 104).end()
+    rows, info = seg(game, box)
+    assert info["anomalies"] == 0
+    first = rows[0]
+    assert (first["off_team_id"], first["ending_type"], first["finisher_id"], first["points"]) == (HOME, "foul_drawn", 103, 2)
+    assert (first["tech_ft_points_off"], first["tech_ft_points_def"]) == (0, 1)                 # the technical point is kept apart
+    assert [(r["off_team_id"], r["ending_type"]) for r in rows[:2]] == [(HOME, "foul_drawn"), (AWAY, "shot")]
+
+
+def test_unmarked_away_from_play_free_throw_keeps_the_ball(game, box):
+    """Games 0022600098 and 0022600187: away-from-play foul, an unmarked "1 of 1", then the SAME team commits an offensive foul."""
+    game.start().foul(700, AWAY, 201, drawn=102, descriptor="away-from-play").ft(700, HOME, 101, 1, 1, made=True) \
+        .foul(698, HOME, 103, sub="offensive").ev("turnover", 698, "offensive foul", HOME, 103) \
+        .shot(690, AWAY, 202, made=False, three=True).reb(688, HOME, 104).end()
+    rows, info = seg(game, box)
+    assert info["anomalies"] == 0
+    assert [(r["off_team_id"], r["ending_type"], r["points"], r["retained_ft"]) for r in rows[:2]] == \
+        [(HOME, "turnover", 1, True), (AWAY, "shot", 0, False)]
+
+
+def test_marked_free_throws_are_paid_first_and_debts_do_not_travel(game, box):
+    from tendency.possessions import free_throw_kinds
+    # Game 0022500775: and-one "1 of 1" logged BEFORE the marked technical. The and-one must stay ordinary.
+    g = Game().start().shot(700, HOME, 101, made=True).foul(700, AWAY, 201, sub="technical") \
+        .foul(700, AWAY, 201, drawn=101, descriptor="shooting").ft(700, HOME, 101, 1, 1, made=True).ft(700, HOME, 102, 1, 1, made=True, technical=True)
+    assert [k for k in free_throw_kinds(g.actions) if k] == ["technical"] and free_throw_kinds(g.actions)[-1] == "technical"
+    rows, _ = segment_game(g.end().pbp(), box)
+    assert (rows[0]["ending_type"], rows[0]["points"], rows[0]["and_one"]) == ("shot", 3, True)
+    assert rows[0]["tech_ft_points_off"] + rows[1]["tech_ft_points_def"] == 1          # the technical point is counted once, apart
+    # a double technical owes nobody a free throw; a technical at another clock does not reach this one
+    g = Game().start().foul(700, AWAY, 201, sub="technical", descriptor="double").foul(700, HOME, 101, sub="technical", descriptor="double") \
+        .shot(690, HOME, 102, made=True).foul(690, AWAY, 202, drawn=102, descriptor="shooting").ft(690, HOME, 102, 1, 1, made=True)
+    assert not any(free_throw_kinds(g.actions))
+    g = Game().start().foul(700, AWAY, 201, sub="technical").shot(690, HOME, 102, made=True) \
+        .foul(690, AWAY, 202, drawn=102, descriptor="shooting").ft(690, HOME, 102, 1, 1, made=True)
+    assert not any(free_throw_kinds(g.actions))
+    # an unmarked flagrant trip is read from the foul too, both shots
+    g = Game().start().foul(700, AWAY, 201, drawn=101, descriptor="flagrant-type-1").ft(700, HOME, 101, 1, 2, made=True).ft(700, HOME, 101, 2, 2, made=True)
+    assert [k for k in free_throw_kinds(g.actions) if k] == ["flagrant", "flagrant"]

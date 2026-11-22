@@ -19,6 +19,8 @@ Rules (each has a test in tests/test_possessions.py):
   away-from-play trip, ends the possession like any other trip.
 * A technical free throw (and its dead-ball rebound) between a made basket and its and-one free
   throw does not split the and-one.
+* What kind of free throw it is (technical, away-from-play, flagrant...) comes from its own markers
+  or, when the feed leaves them off as the live CDN feed does, from the foul that awarded it.
 * End-of-period heave: a `heave` action (2025-26 onward), or a shot from >= 40 ft (or area "Backcourt") with <= 3 s on
   the period clock is flagged `is_heave`, given shot_family "heave", and excluded
   from every prediction head (`model_eligible` = False).
@@ -72,6 +74,73 @@ def _int_or_none(v: Any) -> int | None:
 def is_technical(a: dict) -> bool:
     m = F.TECHNICAL_MARKER
     return m in _low(a, F.SUB_TYPE) or m in _low(a, F.DESCRIPTOR) or m in _low(a, F.DESCRIPTION)
+
+
+def free_throw_kinds(actions: list[dict]) -> list[str]:
+    """For each action, the free throw's kind: "technical", a keep-the-ball descriptor, or "" (ordinary / not a free throw).
+
+    A free throw's own markers win. When it has none, the kind comes from the foul that awarded it:
+    a technical foul owes the other team one "1 of 1" at the same clock, and an away-from-play,
+    flagrant, clear-path or transition-take foul owes them a trip of that kind. The season archives
+    mark the free throws themselves; the live CDN feed marks only flagrants, so without this every
+    technical free throw there would read as an ordinary trip and end or invent a possession.
+
+    Double fouls owe nothing. A debt is only good in the period and at the clock it was called at,
+    and marked free throws are paid first: an unmarked free throw takes a debt only if the marked
+    ones at that moment leave one over. That keeps an and-one beside a marked technical ordinary.
+    """
+    kinds = [""] * len(actions)
+
+    def parts(a: dict) -> tuple[int, int]:
+        m = _FT_RE.search(_low(a, F.SUB_TYPE))
+        return (int(m.group(1)), int(m.group(2))) if m else (1, 1)
+
+    def own_kind(a: dict) -> str:
+        if is_technical(a):
+            return F.FT_TECHNICAL
+        d = _low(a, F.DESCRIPTOR)
+        return d if d in F.FT_RETAIN_DESCRIPTORS else ""
+
+    # pass 1: what the feed marks itself. A technical is paid per free throw, a trip once (at its last shot).
+    marked: dict[tuple, int] = {}
+    for i, a in enumerate(actions):
+        if _low(a, F.ACTION_TYPE) == F.T_FREETHROW and a.get(F.TEAM_ID):
+            kinds[i] = own_kind(a)
+            k, n = parts(a)
+            if kinds[i] and (kinds[i] == F.FT_TECHNICAL or k >= n):
+                key = (a.get(F.PERIOD), a.get(F.CLOCK), a.get(F.TEAM_ID), kinds[i])
+                marked[key] = marked.get(key, 0) + 1
+    # pass 2: unmarked free throws take what the fouls owe beyond that
+    owed: dict[tuple, int] = {}                              # (period, clock, fouling team, kind) -> fouls so far
+    taken: dict[tuple, int] = {}
+    for i, a in enumerate(actions):
+        t, team = _low(a, F.ACTION_TYPE), a.get(F.TEAM_ID)
+        if not team:
+            continue
+        when = (a.get(F.PERIOD), a.get(F.CLOCK))
+        if t == F.T_FOUL:
+            desc = _low(a, F.DESCRIPTOR)
+            kind = "" if F.FOUL_DOUBLE in desc else (F.FT_TECHNICAL if is_technical(a) else F.FOUL_DESCRIPTOR_TO_FT.get(desc, ""))
+            if kind:
+                owed[(*when, team, kind)] = owed.get((*when, team, kind), 0) + 1
+        elif t == F.T_FREETHROW and not kinds[i]:
+            k, n = parts(a)
+
+            def left(kind: str) -> int:
+                due = sum(v for (p, c, fouler, kd), v in owed.items() if (p, c) == when and fouler != team and kd == kind)
+                return due - marked.get((*when, team, kind), 0) - taken.get((*when, team, kind), 0)
+
+            if n == 1 and left(F.FT_TECHNICAL) > 0:
+                kinds[i] = F.FT_TECHNICAL
+                taken[(*when, team, F.FT_TECHNICAL)] = taken.get((*when, team, F.FT_TECHNICAL), 0) + 1
+                continue
+            for kind in sorted(F.FT_RETAIN_DESCRIPTORS):
+                if left(kind) > 0:
+                    kinds[i] = kind
+                    if k >= n:
+                        taken[(*when, team, kind)] = taken.get((*when, team, kind), 0) + 1
+                    break
+    return kinds
 
 
 def shot_family(a: dict) -> str | None:
@@ -298,6 +367,8 @@ def segment_game(pbp: dict, box: dict) -> tuple[list[dict], dict]:
             finalize(a, clock_s, "other")
         cur["off"] = team
 
+    ft_kind = free_throw_kinds(actions)
+
     def and_one_follows(i: int, team: int) -> bool:
         """Is the made basket at index i followed by a single free throw that belongs to the same possession?
 
@@ -307,12 +378,13 @@ def segment_game(pbp: dict, box: dict) -> tuple[list[dict], dict]:
         the free throws open the next one. An away-from-play "1 of 1" after a made basket IS one: the
         ball goes to the other team afterwards (33 of 34 such trips in 2023-26; the other ended a period).
         """
-        for b in actions[i + 1:]:
+        for j in range(i + 1, len(actions)):
+            b = actions[j]
             t = _low(b, F.ACTION_TYPE)
             if t in (F.T_2PT, F.T_3PT, F.T_TURNOVER, F.T_JUMPBALL, F.T_PERIOD, F.T_HEAVE):
                 return False
-            if t == F.T_FREETHROW and not is_technical(b):
-                if _low(b, F.DESCRIPTOR) in F.FT_KEEP_BALL_DESCRIPTORS:
+            if t == F.T_FREETHROW and ft_kind[j] != F.FT_TECHNICAL:
+                if ft_kind[j] in F.FT_KEEP_BALL_DESCRIPTORS:
                     return False
                 m = _FT_RE.search(_low(b, F.SUB_TYPE))
                 return bool(m) and m.group(2) == "1" and b.get(F.TEAM_ID) == team
@@ -431,14 +503,14 @@ def segment_game(pbp: dict, box: dict) -> tuple[list[dict], dict]:
                     fouls_l2m[team] += 1
         elif t == F.T_FREETHROW and team:
             made = _low(a, F.SHOT_RESULT) == F.SHOT_MADE
-            if is_technical(a):
+            if ft_kind[i] == F.FT_TECHNICAL:
                 cur["tech"][team] += int(made)
                 continue
             claim(team, a, clock_s)
             cur["live"] = True
             m = _FT_RE.search(st)
             k, n = (int(m.group(1)), int(m.group(2))) if m else (1, 1)
-            desc = _low(a, F.DESCRIPTOR)
+            desc = ft_kind[i]                               # the free throw's own descriptor, or the awarding foul's
             # An away-from-play trip keeps the ball only as a lone free throw with no basket before it.
             # After a made basket it is an and-one shot by a teammate, and a two-shot trip is an
             # ordinary penalty trip; both end the possession the usual way.

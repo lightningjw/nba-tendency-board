@@ -220,3 +220,19 @@ def test_cli_dates_and_errors(world, tmp_path, capsys):
     assert "games scored" in capsys.readouterr().out
     assert main(["score", "--root", root, "--log-dir", str(tmp_path), "--date", world["d2"]]) == 2      # nothing logged for that date
     assert pro.date_arg(None, -1) < pro.date_arg(None, 0)
+
+
+def test_history_is_rebuilt_when_the_segmentation_code_is_newer(world, monkeypatch, tmp_path):
+    """After a `git pull` that changes the rules, the cached possession table must not be reused."""
+    import os
+    root = world["root"]
+    logs = []
+    pro.load_history(root, logs.append)
+    assert not logs                                                    # fresh: no rebuild
+    newer = tmp_path / "possessions.py"
+    newer.write_text("# changed")
+    future = (root / "processed" / "possessions.parquet").stat().st_mtime + 60
+    os.utime(newer, (future, future))
+    monkeypatch.setattr(pro, "SEGMENTER_SOURCES", [newer])
+    pro.load_history(root, logs.append)
+    assert any("rebuilding" in m for m in logs)
