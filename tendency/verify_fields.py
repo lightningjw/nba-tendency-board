@@ -13,7 +13,7 @@ from collections import Counter
 from pathlib import Path
 
 from . import cdn_fields as F
-from .possessions import FeedShapeError, parse_clock, segment_game
+from .possessions import FeedShapeError, free_throw_kinds, is_technical, parse_clock, segment_game
 
 
 def verify(pbp_path: Path, box_path: Path | None = None) -> tuple[list[tuple[str, str, str]], bool]:
@@ -59,10 +59,16 @@ def verify(pbp_path: Path, box_path: Path | None = None) -> tuple[list[tuple[str
     add(bool(ft) and all(re.search(F.FT_TRIP_PATTERN, s) for s in ft), "freethrow subType looks like 'N of M'", str(dict(ft)))
     fouls = subs(F.T_FOUL)
     add(None, "foul subType values (need 'offensive'; 'technical' marks technicals)", str(dict(fouls)))
-    tech_ft = [a for a in actions if low(a, F.ACTION_TYPE) == F.T_FREETHROW and F.TECHNICAL_MARKER in (low(a, F.SUB_TYPE) + low(a, F.DESCRIPTOR) + low(a, F.DESCRIPTION))]
-    tech_fouls = fouls.get("technical", 0)
-    add(None, "technical free throws are identifiable by the word 'technical'",
-        f"{len(tech_ft)} technical FTs found, {tech_fouls} technical fouls in this game; if fouls > 0 and FTs == 0, fix TECHNICAL_MARKER")
+    ordered = sorted(actions, key=lambda a: (a.get(F.ORDER_NUMBER, a.get(F.ACTION_NUMBER, 0)), a.get(F.ACTION_NUMBER, 0)))
+    kinds = free_throw_kinds(ordered)
+    marked = sum(1 for a in ordered if low(a, F.ACTION_TYPE) == F.T_FREETHROW and is_technical(a))
+    found = sum(1 for k in kinds if k == F.FT_TECHNICAL)
+    tech_fouls = sum(1 for a in ordered if low(a, F.ACTION_TYPE) == F.T_FOUL and is_technical(a) and F.FOUL_DOUBLE not in low(a, F.DESCRIPTOR))
+    add(None, "technical free throws are identified (by their own marker, or from the technical foul)",
+        f"{tech_fouls} technical fouls (not double); {found} technical FTs identified, {marked} marked by the feed itself, "
+        f"{found - marked} read from the foul")
+    other = Counter(k for k in kinds if k and k != F.FT_TECHNICAL)
+    add(None, "keep-the-ball free throws (flagrant, away-from-play, clear-path, transition take)", str(dict(other)) if other else "none in this game")
     results = Counter(low(a, F.SHOT_RESULT) for a in actions if low(a, F.ACTION_TYPE) in (F.T_2PT, F.T_3PT))
     add(set(results) <= {"made", "missed"} and bool(results), "shotResult is 'Made' or 'Missed'", str(dict(results)))
     shots = [a for a in actions if low(a, F.ACTION_TYPE) in (F.T_2PT, F.T_3PT)]
