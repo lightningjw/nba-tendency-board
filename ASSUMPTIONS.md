@@ -22,8 +22,8 @@ CSV row per action with the feed's own key names: three full regular seasons, 20
 | Dead-ball team rebounds between free throws | present, tagged `deadball`; ignored correctly |
 | Season from `gameId` characters 3-4 | yes |
 | Possession points add up to the final score | 3,690 of 3,690 games |
-| Lineups reconstruct to five a side | 99.99% of 738,771 possessions |
-| Unexplained changes of possession | 47 of 738,771 |
+| Lineups reconstruct to five a side | 738,796 of 738,812 possessions (the 16 are one game with a missing substitution) |
+| Unexplained changes of possession | 11 of 738,812 (47 of 738,771 before the fixes of 2026-11-17, below) |
 | Penalty rule vs the feed's own `inpenalty` tag | agrees on 99.99% of 88,347 fouls |
 
 ## Assumptions that were wrong, and the fix
