@@ -103,6 +103,18 @@ Run by the owner on his own machine. `verify-fields` passed everything except sh
     of all shots and about one "midrange" label in nine, were dunks and tip-ins. They are now rim shots whatever
     `area` says. Shot-location log-loss moved by about 0.012 for model and baseline alike; the difference between
     them, and every verdict, held.
+14. **The live CDN feed does not mark technical or away-from-play free throws.** The archives put `technical`,
+    `away-from-play`, `clear-path` and `transition take` on the free throw itself; the live feed marks only
+    `flagrant` (seen in 240 fetched 2026-27 games). Unmarked, a technical "1 of 1" reads as an ordinary trip and
+    ends or invents a possession, silently; one of them surfaced as an unexplained change, which is how it was
+    found. The kind is now read from the foul that awarded the free throw when the free throw has no marker.
+    Checked by stripping the markers from all 3,690 archive games: 30 of about 4,460 special free throws are
+    read wrongly (0.7%), 12 games differ by 16 possessions in total, and with markers left in place nothing
+    changes at all.
+- Still unexplained in the fetched games, and left that way: two possessions in `0022600009` where the feed
+  lists a two-shot foul but no free throws; an offensive-foul turnover charged to a team that, by every other
+  event, did not have the ball (`0022600003`, `0022600114`); and a flagrant by the scoring team between a basket
+  and its and-one (`0022600225`, `0022600254`).
 - Also confirmed on that game: the real boxscore has five starters a side, 201 possessions, points reconcile
   (234 of 234), lineups reconstruct on 100%, no unexplained changes, and the segmenter agrees with the feed's
   own `possession` field on 102 of 102 made-shot and turnover endings.
