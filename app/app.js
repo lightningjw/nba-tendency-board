@@ -145,7 +145,7 @@ async function renderMethod() {
     <div class="cols">${m.heads.map((h) => `<div class="sheet"><h3>${esc(h.label)}</h3>
       <p>${h.classes ? esc(h.class_labels.join(", ")) + "." : "One of the five offensive players on the floor."}${h.conditional_on ? ` Given that ${esc(h.conditional_on)}.` : ""}</p>
       <p class="small muted">Baseline: ${esc(h.baseline)}.</p></div>`).join("")}</div>
-    <p style="margin-top:14px">The model for each prediction is gradient-boosted trees that start from the baseline's odds and learn corrections from game context: clock, score, fouls, timeouts, who is on the floor, how the possession started, and what has happened so far in the game. A prediction ships only if it beats its baseline on games it never saw.</p>
+    <p style="margin-top:14px">The model for each prediction is gradient-boosted trees that start from the baseline's odds and learn corrections from game context: clock, score, fouls, timeouts, who is on the floor, how the possession started, and what has happened so far in the game. A prediction is kept only if it beats its baseline on real games it never saw; the scorecard shows by how much, and the margins are small.</p>
   </section>
 
   <section class="section"><h2>How it is kept honest</h2>
@@ -153,6 +153,7 @@ async function renderMethod() {
       <div class="sheet"><h3>Held-out games, held-out season</h3><p>${esc(sp.rule)}</p>
         <p class="small muted">Training: ${int(sp.train.n_games)} games. Held out: ${int(sp.holdout_games.n_games)} games and ${int(sp.holdout_season.n_games)} games in a separate season.</p></div>
       <div class="sheet"><h3>Nothing from the future</h3><p>Season-to-date numbers for a game use only games that tipped off earlier. In-game counts use only earlier possessions. A test rewrites later outcomes and fails if any feature moves.</p></div>
+      <div class="sheet"><h3>Looking back, until logged ahead</h3><p>Held-out results are computed after the games were played. The stricter test is a file written before tip-off that names a frozen model by its hash, scored after the game. ${S.scorecard.prospective && S.scorecard.prospective.available && S.scorecard.prospective.mode === "live" ? `${int(S.scorecard.prospective.n_games)} games have been logged that way so far.` : "No game has been logged that way yet; the scorecard says so."}</p></div>
       <div class="sheet"><h3>Uncertainty on every number</h3><p>Scorecard intervals resample whole games. Each probability in the replay sits beside how often calls like it came true on held-out games. Tendencies show an interval and a sample size, and are ranked by the cautious end of the interval.</p></div>
     </div>
   </section>
@@ -160,7 +161,7 @@ async function renderMethod() {
   <section class="section"><h2>What play-by-play cannot see</h2>
     <div class="cols">
       <div class="sheet"><h3>No play calls, no coverages</h3><p>The feed records what ended a possession, not the set that was called or how the pick-and-roll was defended. Those need tracking or video. Nothing here predicts or implies them.</p></div>
-      <div class="sheet"><h3>Lineups are reconstructed</h3><p>Who is on the floor comes from starters plus substitution events. ${pct(m.quality.lineup_ok_rate, 1)} of ${int(m.quality.n_possessions)} possessions reconstruct to five a side; the rest are left out of scoring.</p>
+      <div class="sheet"><h3>Lineups are reconstructed</h3><p>Who is on the floor comes from starters plus substitution events; where the source has no boxscore, starters are the first five players to act. ${pct(m.quality.lineup_ok_rate, 1)} of ${int(m.quality.n_possessions)} possessions reconstruct to five a side; the rest are left out of scoring.</p>
         <p class="small muted">${int(m.quality.n_heaves)} end-of-period heaves and ${int(m.quality.n_period_end)} possessions cut off by the horn are also left out. ${int(m.quality.n_anomalous_possessions)} changes of possession could not be explained by the segmenter.</p></div>
       <div class="sheet"><h3>Tendencies are a first pass</h3><p>${esc(m.tendency_method.label)}. ${esc(m.tendency_method.note)}</p></div>
     </div>
@@ -429,7 +430,7 @@ async function boot() {
     tape.hidden = false;
     tape.innerHTML = `<strong>Synthetic sample data</strong> Placeholder teams and players. Every number on this page is simulated. Not NBA results.`;
   }
-  $("#foot").textContent = `Data ${S.manifest.data_kind}, exported ${day(S.manifest.generated_at)}. Contract version ${S.manifest.contract_version}. Built from public play-by-play; not affiliated with the NBA.`;
+  $("#foot").textContent = `Data ${S.manifest.data_kind}, exported ${day(S.manifest.generated_at)}. Contract version ${S.manifest.contract_version}. Built from public play-by-play; not affiliated with the NBA.${S.manifest.data_kind === "real" ? " Statistics from NBA.com." : ""}`;
   window.addEventListener("hashchange", render);
   document.addEventListener("keydown", (e) => {
     if (lastView !== "replay" || e.altKey || e.metaKey || e.ctrlKey || /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
