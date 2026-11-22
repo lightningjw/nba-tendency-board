@@ -206,3 +206,14 @@ published before the game": score, fouls and the five on the floor do not exist 
     conservative reading of NBA.com Terms section 9 bars any public product that presents live or archived
     play-by-play, which covers a public real-data replay view, real replay files in the repo, and Phase 3 live
     mode. Code, the model scorecard and attributed, non-commercial tendency tables are the defensible set.
+
+### Step 1.5, close-out
+75. **README screenshot is the synthetic sample.** A real-data screenshot would publish real names and numbers,
+    and what gets published is the owner's call after the terms check.
+76. **Results moved to the top of the README with top-pick accuracy beside log-loss**, and the limits listed
+    directly under them, including two the old README did not state: the tendency layer is a stand-in, and the
+    shot-location baseline ignores the lineup.
+77. **Method page: three sentences changed, no features.** "Ships only if it beats its baseline" now says the
+    margins are small; a card states that results are retrospective until logged ahead; the lineup card says
+    starters are inferred when there is no boxscore. With real data the footer adds "Statistics from NBA.com".
+78. **No tag.** Draft notes are in `docs/release-notes-v0.1.0.md`.
