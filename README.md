@@ -1,5 +1,7 @@
 # Tendency Board
 
+[![CI](https://github.com/lightningjw/nba-tendency-board/actions/workflows/ci.yml/badge.svg)](https://github.com/lightningjw/nba-tendency-board/actions/workflows/ci.yml)
+
 Next-possession predictions and scouting tendencies from public NBA play-by-play, with a static web app on top.
 Two halves meet at one data contract (`contract/schemas/`): the Python pipeline writes JSON that validates against
 it, and the app validates every file against the same schemas before rendering.
