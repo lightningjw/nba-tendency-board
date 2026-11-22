@@ -13,6 +13,7 @@ from . import CONTRACT_VERSION
 from .contract import SCHEMA_DIR, validate, validate_export_dir
 from .models import INTERVAL_LEVEL, ModelRun
 from .possessions import ENDING_CLASSES, SHOT_FAMILIES
+from .prospective import scorecard_block
 from .tendencies import INTERVAL_LEVEL as TENDENCY_LEVEL
 from .tendencies import METHOD, team_reports
 
@@ -37,8 +38,12 @@ def _none(v):
 
 
 def export_all(out: Path, poss: pd.DataFrame, games: list[dict], run: ModelRun, synthetic: bool,
-               max_replays: int = 30, fields_verified: bool = False, log=print) -> dict:
-    """Write manifest, teams, games, scorecard, team reports and replays into `out`."""
+               max_replays: int = 30, fields_verified: bool = False, log=print, predictions: Path | None = None) -> dict:
+    """Write manifest, teams, games, scorecard, team reports and replays into `out`.
+
+    `predictions` is the prospective log folder (`predict` / `score`). Without it, or when it holds
+    nothing scored yet, the scorecard carries an empty prospective block.
+    """
     kind = "synthetic" if synthetic else "real"
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     if out.exists():
@@ -78,7 +83,7 @@ def export_all(out: Path, poss: pd.DataFrame, games: list[dict], run: ModelRun, 
     # ---- scorecard -------------------------------------------------------------------
     scorecard = {"data_kind": kind, "generated_at": now, "interval_level": INTERVAL_LEVEL,
                  "bootstrap": "1,000 resamples of whole games (possessions within a game are not independent)",
-                 "heads": run.scorecard_heads}
+                 "heads": run.scorecard_heads, "prospective": scorecard_block(predictions, kind)}
     validate(scorecard, "scorecard")
     _dump(out / "scorecard.json", scorecard)
 
@@ -168,5 +173,7 @@ def export_all(out: Path, poss: pd.DataFrame, games: list[dict], run: ModelRun, 
     validate(manifest, "manifest")
     _dump(out / "manifest.json", manifest)
     counts = validate_export_dir(out)
-    log(f"export: wrote and validated {sum(counts.values())} contract files in {out} ({kind})")
+    pro = scorecard["prospective"]
+    log(f"export: wrote and validated {sum(counts.values())} contract files in {out} ({kind}); prospective log: "
+        + (f"{pro['n_games']} games on {pro['n_dates']} dates ({pro['mode']})" if pro["available"] else "empty"))
     return counts

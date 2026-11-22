@@ -29,7 +29,7 @@ const team = (id) => S.teams.byId.get(id) || { tricode: String(id), name: String
 const player = (id) => S.teams.players.get(id) || `Player ${id}`;
 const head = (id) => S.manifest.heads.find((h) => h.id === id);
 const START = { period_start: "Start of period", made_basket: "After a made basket", def_rebound: "Off a defensive rebound", turnover: "Off a turnover", free_throw: "After free throws", other: "Other start" };
-const SPLIT = { holdout_games: "Held-out games, same seasons as training", holdout_season: "Held-out season" };
+const SPLIT = { holdout_games: "Held-out games, same seasons as training", holdout_season: "Held-out season", prospective: "Games logged before tip-off" };
 
 class ContractProblem extends Error {}
 
@@ -145,7 +145,7 @@ async function renderMethod() {
     <div class="cols">${m.heads.map((h) => `<div class="sheet"><h3>${esc(h.label)}</h3>
       <p>${h.classes ? esc(h.class_labels.join(", ")) + "." : "One of the five offensive players on the floor."}${h.conditional_on ? ` Given that ${esc(h.conditional_on)}.` : ""}</p>
       <p class="small muted">Baseline: ${esc(h.baseline)}.</p></div>`).join("")}</div>
-    <p style="margin-top:14px">The model for each prediction is gradient-boosted trees that start from the baseline's odds and learn corrections from game context: clock, score, fouls, timeouts, who is on the floor, how the possession started, and what has happened so far in the game. A prediction ships only if it beats its baseline on games it never saw.</p>
+    <p style="margin-top:14px">The model for each prediction is gradient-boosted trees that start from the baseline's odds and learn corrections from game context: clock, score, fouls, timeouts, who is on the floor, how the possession started, and what has happened so far in the game. A prediction is kept only if it beats its baseline on real games it never saw; the scorecard shows by how much, and the margins are small.</p>
   </section>
 
   <section class="section"><h2>How it is kept honest</h2>
@@ -153,6 +153,7 @@ async function renderMethod() {
       <div class="sheet"><h3>Held-out games, held-out season</h3><p>${esc(sp.rule)}</p>
         <p class="small muted">Training: ${int(sp.train.n_games)} games. Held out: ${int(sp.holdout_games.n_games)} games and ${int(sp.holdout_season.n_games)} games in a separate season.</p></div>
       <div class="sheet"><h3>Nothing from the future</h3><p>Season-to-date numbers for a game use only games that tipped off earlier. In-game counts use only earlier possessions. A test rewrites later outcomes and fails if any feature moves.</p></div>
+      <div class="sheet"><h3>Looking back, until logged ahead</h3><p>Held-out results are computed after the games were played. The stricter test is a file written before tip-off that names a frozen model by its hash, scored after the game. ${S.scorecard.prospective && S.scorecard.prospective.available && S.scorecard.prospective.mode === "live" ? `${int(S.scorecard.prospective.n_games)} games have been logged that way so far.` : "No game has been logged that way yet; the scorecard says so."}</p></div>
       <div class="sheet"><h3>Uncertainty on every number</h3><p>Scorecard intervals resample whole games. Each probability in the replay sits beside how often calls like it came true on held-out games. Tendencies show an interval and a sample size, and are ranked by the cautious end of the interval.</p></div>
     </div>
   </section>
@@ -160,7 +161,7 @@ async function renderMethod() {
   <section class="section"><h2>What play-by-play cannot see</h2>
     <div class="cols">
       <div class="sheet"><h3>No play calls, no coverages</h3><p>The feed records what ended a possession, not the set that was called or how the pick-and-roll was defended. Those need tracking or video. Nothing here predicts or implies them.</p></div>
-      <div class="sheet"><h3>Lineups are reconstructed</h3><p>Who is on the floor comes from starters plus substitution events. ${pct(m.quality.lineup_ok_rate, 1)} of ${int(m.quality.n_possessions)} possessions reconstruct to five a side; the rest are left out of scoring.</p>
+      <div class="sheet"><h3>Lineups are reconstructed</h3><p>Who is on the floor comes from starters plus substitution events; where the source has no boxscore, starters are the first five players to act. ${pct(m.quality.lineup_ok_rate, 1)} of ${int(m.quality.n_possessions)} possessions reconstruct to five a side; the rest are left out of scoring.</p>
         <p class="small muted">${int(m.quality.n_heaves)} end-of-period heaves and ${int(m.quality.n_period_end)} possessions cut off by the horn are also left out. ${int(m.quality.n_anomalous_possessions)} changes of possession could not be explained by the segmenter.</p></div>
       <div class="sheet"><h3>Tendencies are a first pass</h3><p>${esc(m.tendency_method.label)}. ${esc(m.tendency_method.note)}</p></div>
     </div>
@@ -368,10 +369,25 @@ function renderScorecard() {
     </div><div>${reliabilityPlot(s.reliability, `Calibration for ${head(h.head).label}, ${SPLIT[s.split]}`)}
       <ul class="key" style="justify-content:center"><li><i class="k-model" style="width:10px;border-radius:50%"></i>model</li><li><i style="width:9px;height:9px;border:2px solid #6E7580"></i>baseline</li><li>bars: ${lvl}% range of the observed rate</li></ul></div></div>`;
   };
+  // Prospective results are optional in the contract (added in 1.1). A missing block and an empty one read the same.
+  const pro = sc.prospective || { available: false, mode: null, reason: "No predictions have been logged before tip-off yet", n_dates: 0, n_games: 0, n_late: 0, models: [], heads: [] };
+  const replayed = pro.mode === "replay";
+  const proHtml = pro.available
+    ? `<p class="prohead"><b>${int(pro.n_games)}</b> game${pro.n_games === 1 ? "" : "s"} on <b>${int(pro.n_dates)}</b> date${pro.n_dates === 1 ? "" : "s"}, ${day(pro.first_date)} to ${day(pro.last_date)}.
+        ${replayed ? "" : "Each game has a file written before tip-off that names the frozen model by hash; the commit time of that file is the proof."}
+        ${pro.n_late ? ` ${int(pro.n_late)} more ${pro.n_late === 1 ? "was" : "were"} logged after tip-off and ${pro.n_late === 1 ? "is" : "are"} left out.` : ""}</p>
+      ${replayed ? `<p class="note"><strong>Replay, not prospective evidence.</strong> These dates were replayed day by day from games already on disk: freeze a model, write the pregame files, then score. It shows the logging and scoring work. It does not show the model was fixed before the games were played.</p>` : ""}
+      <p class="small muted">Frozen model${pro.models.length === 1 ? "" : "s"}: ${pro.models.map((m) => `${esc(m.id)} (trained through ${day(m.trained_through)}, sha256 ${esc(m.sha256.slice(0, 12))})`).join("; ")}.
+        Each game is scored with pregame numbers from the morning of the game, so it cannot see another game from the same night.</p>
+      ${pro.heads.map((h) => `<h3 class="prohd">${esc(head(h.head).label)}</h3>${block(h, h.result)}`).join("")}`
+    : `<p class="note plain">${esc(pro.reason || "Nothing logged yet")}. Everything under "Looking back" was computed after the games were played, on games the models never trained on. It becomes prospective only when a prediction file is committed before tip-off and scored afterwards.</p>`;
   $("#view").innerHTML = `
   <div class="pagehead"><div><h2>Scorecard</h2>
     <p class="muted">Each prediction against its baseline on games the models never saw. A verdict needs the whole ${lvl}% interval of the difference on one side of zero.</p></div></div>
   ${synth ? `<p class="note">These numbers come from simulated games. "Model ahead" here shows the evaluation runs end to end; it is not evidence the model beats its baseline on NBA data.</p>` : ""}
+  <section class="sheet pro" aria-label="Prospective results"><h2 style="margin-bottom:4px">Logged before tip-off</h2>${proHtml}</section>
+  <h2 class="lookback">Looking back</h2>
+  <p class="muted" style="margin-top:0">Retrospective: held-out games and a held-out season, scored after the fact.</p>
   ${sc.heads.map((h) => `<div class="sheet"><h2 style="margin-bottom:4px">${esc(head(h.head).label)}</h2>
     <p class="small muted">Baseline: ${esc(head(h.head).baseline)}.${head(h.head).conditional_on ? ` Scored only when ${esc(head(h.head).conditional_on)}.` : ""}</p>
     ${h.splits.map((s) => block(h, s)).join("")}</div>`).join("")}
@@ -414,7 +430,7 @@ async function boot() {
     tape.hidden = false;
     tape.innerHTML = `<strong>Synthetic sample data</strong> Placeholder teams and players. Every number on this page is simulated. Not NBA results.`;
   }
-  $("#foot").textContent = `Data ${S.manifest.data_kind}, exported ${day(S.manifest.generated_at)}. Contract version ${S.manifest.contract_version}. Built from public play-by-play; not affiliated with the NBA.`;
+  $("#foot").textContent = `Data ${S.manifest.data_kind}, exported ${day(S.manifest.generated_at)}. Contract version ${S.manifest.contract_version}. Built from public play-by-play; not affiliated with the NBA.${S.manifest.data_kind === "real" ? " Statistics from NBA.com." : ""}`;
   window.addEventListener("hashchange", render);
   document.addEventListener("keydown", (e) => {
     if (lastView !== "replay" || e.altKey || e.metaKey || e.ctrlKey || /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;

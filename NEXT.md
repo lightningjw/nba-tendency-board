@@ -5,16 +5,20 @@
 - Three real seasons run end to end; all three heads beat their baselines on held-out data (README).
 
 ## Before publishing anything real
-1. Read NBA.com terms. Until then the real export stays local.
-2. Hand-check one real game's possession table against its box score.
+1. ~~Read NBA.com terms~~: done, `docs/terms-check.md`. Recommendation: code and derived aggregates may be public;
+   play-by-play (raw rows, real replay files, live mode) may not. The decision on what to publish is still yours.
+2. ~~Hand-check one real game~~: done with `python -m tendency inspect` on three games; see ASSUMPTIONS.md.
 3. Decide how current-season games arrive: the mirror is refreshed by its maintainer, the CDN refuses plain
    requests, and nba_api gets through with browser-like headers.
 
 ## Then, still MVP
-- Nightly job: pull yesterday's games, write timestamped predictions before tip-off, commit them, so the
-  scorecard is prospective (brief section 8). Not built; today's held-out season is retrospective.
-- 2026-27 games: not in the mirror yet as of this run.
-- Real team names and full player names (the bulk path has tricodes and "J. Tatum").
+- ~~Prospective log~~: built (`train`, `predict`, `score`; README "Prospective log"). Rehearsed on 2025-26 as a
+  replay: 14 dates, 105 games. **Nothing has been logged before a real game yet.** That starts on your machine:
+  1. `pip install nba_api`, then `python scripts/fetch_nba_api.py --season 2026-27` until it reports nothing left.
+  2. `python -m tendency verify-fields` on one fetched game: the real boxscore's field names are from docs only.
+  3. `python -m tendency train --through <yesterday>`, then the cron line in the README.
+- 2026-27 games: still not in the mirror on 2026-11-21 (only the WNBA 2026 archives are).
+- ~~Real team names and full player names~~: done (`tendency/teams.py`, matchups archives).
 - ~~CI~~: done, `.github/workflows/ci.yml`.
 
 ## Stubs, and where each plugs in (`tendency/stubs/`)

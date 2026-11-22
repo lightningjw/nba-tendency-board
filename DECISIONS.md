@@ -106,3 +106,114 @@ Each was made without asking, per the build instructions. Reverse any of them fr
 43. **CI also validates the bundled `app/data`.** A contract change that forgets to regenerate the sample the
     deployed app serves fails the build instead of failing in the browser.
 44. **No real data in CI.** The real path needs a 60 MB download and 4 GB of RAM; it stays a local check.
+
+### Step 1.2, hand-check tool and what it found
+45. **`inspect` lays raw actions under possessions by the first and last `actionNumber` each row consumed.** No
+    second pass over the game; what is printed is exactly what the segmenter saw. Actions between possessions
+    are marked `~`. Exit code 2 if points do not reconcile, so it can be scripted.
+46. **"Odd" means**: and-one, heave, retained free throw, technical points, lineup not five-a-side, unexplained
+    ending, horn, or two or more offensive rebounds.
+47. **A free throw with a keep-the-ball descriptor is never an and-one, except away-from-play after a made
+    basket.** Flagrant, clear-path and take fouls: the basket ends its possession and the free throws open the
+    next for the same team. Away-from-play after a basket: and-one by a teammate, possession ends. Two-shot
+    away-from-play: ordinary trip. Rule set by counting who had the ball next in 3,690 games (ASSUMPTIONS.md).
+48. **Rebounds never stop the and-one look-ahead.** Before a second shot there is nothing to rebound but a
+    free throw, so a rebound seen there is the dead-ball one after a technical.
+49. **A `personId` with no player name is not a player** (bulk path): not on the roster, never a starter.
+50. **Debatable segmentation cases were listed, not changed** (ASSUMPTIONS.md, "Debatable"). Each moves a few
+    possessions a season; none moves a scorecard number at the precision shown.
+
+### Step 1.3, real names
+51. **Team city and nickname come from a static 30-row table keyed by team id** (`tendency/teams.py`), built from
+    the mirror's matchups archives and checked against the team ids in all 3,690 games on disk. Not from memory.
+    The tricode still comes from each game's own feed, so a rebrand shows the tricode of the day.
+52. **Full player names come from the mirror's matchups archives** (`first_name`, `family_name` per `person_id`,
+    about 4 MB a season, 2017-18 onward). They cover all 802 players in the three seasons; the shot-detail archive
+    would miss anyone who never took a shot. Keyed by person id alone, so a traded player has one name.
+53. **Names are optional.** If the archive cannot be fetched the run carries on with "J. Tatum" and says so once.
+    `--no-full-names` skips it. Cached in `data/real/bulk/player_names.json`.
+54. **Derived boxscores carry a version.** `bulk` rewrites one made by an older version (or without names when
+    names are now available) and leaves the play-by-play beside it alone. No need to delete `data/real/raw`.
+55. **No contract change.** `teams.json` already carried `name` and player `name` as free strings.
+56. **Spelling follows the source.** The matchups archive has "Nikola Jokić" where the feed's short form has
+    "N. Jokic"; nine players differ only by diacritics. The full name wins.
+
+### Step 1.4, prospective prediction log (design, written before the code)
+
+**The claim, exactly.** "The model and everything it was allowed to know were fixed before the game." Proof is a
+file committed before tip-off that names the frozen model by hash. It is not "these per-possession numbers were
+published before the game": score, fouls and the five on the floor do not exist before tip-off.
+
+57. **Source for 2026-27 games: wait for the mirror, and replay 2025-26 as if live to test the flow.** That was
+    the default given for this session. The mirror has no `cdnnba_2026` archive as of 2026-11-21 (it lists `wnba_cdnnba_2026`, which `bulk` used to mistake for it). A script for
+    your own machine (`scripts/fetch_nba_api.py`) is written and unit-tested against a fake client but was never
+    run against nba.com, and nothing in this repo calls cdn.nba.com or stats.nba.com from the cloud.
+58. **Three commands.** `train --through D` freezes models on games up to D. `predict --date D` writes one file
+    per game before tip-off. `score --date D` scores the frozen model on that date's games once they are final.
+59. **What a pregame file holds** (`predictions/YYYY-MM-DD/<gameId>.json`, schema
+    `contract/schemas/prediction_log.schema.json`): when it was written; the frozen model's id, training cut-off
+    and SHA-256; the last game the inputs include; and for each team its projected five (the starters of its
+    most recent game), its baseline shares, and baseline and model probabilities for all three heads in four
+    fixed reference situations (opening tip; Q2 half court; after a timeout late and close; defense in the
+    penalty in Q4).
+60. **Reference situations are fake possessions pushed through the real feature code.** No second implementation
+    of the shrinkage formulas to drift. In-game counts are not knowable pregame: they are zero at the opening
+    tip (exact) and set to their pregame expectation elsewhere (team's usual possessions by that point times its
+    baseline shares; the projected five assumed on the floor). The file says so in `ingame_assumption`.
+61. **A game date is the US Eastern calendar date of tip-off.** UTC would split one night across two dates.
+62. **Scoring uses a day-start snapshot.** Every game on date D gets pregame features from games before D only,
+    not from an earlier game the same night. That is what could be known when the log was written, and it lets
+    `score` recompute each team's baseline and compare it with the logged one (`inputs_max_abs_diff`). It is
+    slightly stricter than the retrospective splits, which let a late game see that night's early games.
+63. **`score` only accepts the model the log names.** It recomputes the SHA-256 of the model files and refuses
+    on any mismatch, refuses a model whose training cut-off is not before the game date, and says so plainly
+    when the model on disk was created after the log was written. Retraining over an existing model id is
+    refused by `train` unless `--force`, for the same reason.
+64. **Models live under `data/<root>/models/`, not in git.** A model file is trained on NBA data; only its hash
+    is in the log. Keep the files: without them a log cannot be scored. LightGBM runs deterministically here,
+    so the same data and versions should rebuild the same file, but that is not guaranteed across machines.
+65. **`predict` refuses a date whose games are already on disk unless `--replay`**, and a replayed log is marked
+    `mode: "replay"` in every file and in the scorecard. The app labels a replay as a flow test, not as
+    prospective evidence. A live log written after tip-off is kept but counted as late and left out of the
+    prospective numbers.
+66. **Per-game sums, not per-possession rows, are what accumulates** (`predictions/scorecard_prospective.json`):
+    per head, the count, summed log-loss for model and baseline, top-pick hits, and calibration-bin sums. That
+    is enough to rebuild log-loss, the game-bootstrap interval and the reliability table exactly, and it holds
+    no play-by-play. Re-scoring a date replaces its games; it never double counts.
+67. **Each date folder also gets `SHA256SUMS`.** If the terms check says per-game files with real names should
+    not be public, committing only the checksum file still timestamps the log; the files can be shown later.
+    `score` verifies the checksums when the file is present.
+68. **Contract 1.1: `scorecard.json` gains an optional `prospective` block**, and the manifest accepts versions
+    1.0 and 1.1. An export without the block (any 1.0 export) still validates and the app shows the same
+    "nothing logged yet" state as an empty block. The retrospective `splits` are untouched.
+69. **The bundled synthetic sample ships with an empty prospective block.** Nothing has been logged before a
+    real game, and a simulated one on the public demo would read as more than it is. The populated view is
+    covered by a test that runs train, predict and score on synthetic games, and by the 2025-26 replay.
+70. **`evaluate()` was split into per-game sums plus one function that turns sums into the scorecard entry**, so
+    retrospective and prospective numbers come from the same arithmetic.
+71. **`nba_api` is not a project dependency.** The fetch script imports it lazily and tells you to
+    `pip install nba_api` on your own machine. It sends browser-like headers to reach the CDN; whether to use it
+    is the terms decision in step 1.0a.
+72. **`scripts/nightly.sh` commits nothing by default** (`PUBLISH=none`). `sums` commits only the checksum files,
+    `full` the per-game files. What gets published is the owner's decision after the terms check.
+73. **Replay of 2025-26, as built:** model frozen through 2026-03-01 (3,366 games), then 2026-03-02 to 03-15
+    predicted and scored one date at a time: 14 dates, 105 games, about 4 s per `predict` and per `score`.
+    Logged and recomputed baselines agree to 5e-05 (rounding). Last game's starters were 83% of the next game's.
+    The replay log lives in `data/real/predictions_replay` (gitignored), never in `predictions/`.
+
+### Step 1.0a, terms check
+74. **Research only; nothing published changed.** Finding and recommendation are in `docs/terms-check.md`. The
+    conservative reading of NBA.com Terms section 9 bars any public product that presents live or archived
+    play-by-play, which covers a public real-data replay view, real replay files in the repo, and Phase 3 live
+    mode. Code, the model scorecard and attributed, non-commercial tendency tables are the defensible set.
+
+### Step 1.5, close-out
+75. **README screenshot is the synthetic sample.** A real-data screenshot would publish real names and numbers,
+    and what gets published is the owner's call after the terms check.
+76. **Results moved to the top of the README with top-pick accuracy beside log-loss**, and the limits listed
+    directly under them, including two the old README did not state: the tendency layer is a stand-in, and the
+    shot-location baseline ignores the lineup.
+77. **Method page: three sentences changed, no features.** "Ships only if it beats its baseline" now says the
+    margins are small; a card states that results are retrospective until logged ahead; the lineup card says
+    starters are inferred when there is no boxscore. With real data the footer adds "Statistics from NBA.com".
+78. **No tag.** Draft notes are in `docs/release-notes-v0.1.0.md`.

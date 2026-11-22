@@ -13,7 +13,8 @@ from pathlib import Path
 from jsonschema import Draft202012Validator
 
 SCHEMA_DIR = Path(__file__).resolve().parent.parent / "contract" / "schemas"
-SCHEMAS = ["manifest", "teams", "team_report", "games", "replay", "scorecard"]
+SCHEMAS = ["manifest", "teams", "team_report", "games", "replay", "scorecard"]      # what the app reads
+LOG_SCHEMAS = ["prediction_log"]                                                    # written by `predict`, read by `score`
 SUPPORTED_KEYWORDS = {"$id", "$ref", "$defs", "title", "type", "properties", "required", "additionalProperties",
                       "items", "enum", "const", "minimum", "maximum", "minItems", "maxItems"}
 

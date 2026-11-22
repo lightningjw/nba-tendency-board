@@ -76,6 +76,8 @@ SHOT_MADE = "made"
 FOUL_DOUBLE = "double"               # foul descriptor; double fouls do not add to team fouls
 # freethrow descriptors after which the shooting team keeps the ball
 FT_RETAIN_DESCRIPTORS = {"flagrant", "clear-path", "transition take", "away-from-play"}
+FT_AWAY_FROM_PLAY = "away-from-play"   # keeps the ball only as a lone "1 of 1" with no made basket on the play
+FT_KEEP_BALL_DESCRIPTORS = FT_RETAIN_DESCRIPTORS - {FT_AWAY_FROM_PLAY}   # always keep the ball, even after a made basket
 
 # --- play-by-play: shot `area` values -> shot family --------------------------
 AREA_TO_FAMILY = {

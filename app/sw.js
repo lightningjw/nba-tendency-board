@@ -1,6 +1,6 @@
 // Offline support. App shell: cache first, refreshed in the background. Data: network first, so a new
 // export shows up on the next load, with the cached copy as the offline fallback.
-const CACHE = "tendency-board-v1";
+const CACHE = "tendency-board-v3";
 const SHELL = ["./", "index.html", "styles.css", "app.js", "validate.js", "manifest.webmanifest", "icons/icon.svg", "icons/icon-192.png"];
 
 self.addEventListener("install", (e) => e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())));
