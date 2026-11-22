@@ -5,7 +5,8 @@
 - Three real seasons run end to end; all three heads beat their baselines on held-out data (README).
 
 ## Before publishing anything real
-1. Read NBA.com terms. Until then the real export stays local.
+1. ~~Read NBA.com terms~~: done, `docs/terms-check.md`. Recommendation: code and derived aggregates may be public;
+   play-by-play (raw rows, real replay files, live mode) may not. The decision on what to publish is still yours.
 2. ~~Hand-check one real game~~: done with `python -m tendency inspect` on three games; see ASSUMPTIONS.md.
 3. Decide how current-season games arrive: the mirror is refreshed by its maintainer, the CDN refuses plain
    requests, and nba_api gets through with browser-like headers.

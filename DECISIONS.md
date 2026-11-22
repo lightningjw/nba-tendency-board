@@ -200,3 +200,9 @@ published before the game": score, fouls and the five on the floor do not exist 
     predicted and scored one date at a time: 14 dates, 105 games, about 4 s per `predict` and per `score`.
     Logged and recomputed baselines agree to 5e-05 (rounding). Last game's starters were 83% of the next game's.
     The replay log lives in `data/real/predictions_replay` (gitignored), never in `predictions/`.
+
+### Step 1.0a, terms check
+74. **Research only; nothing published changed.** Finding and recommendation are in `docs/terms-check.md`. The
+    conservative reading of NBA.com Terms section 9 bars any public product that presents live or archived
+    play-by-play, which covers a public real-data replay view, real replay files in the repo, and Phase 3 live
+    mode. Code, the model scorecard and attributed, non-commercial tendency tables are the defensible set.
