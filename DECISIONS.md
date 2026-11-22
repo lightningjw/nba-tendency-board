@@ -145,7 +145,7 @@ file committed before tip-off that names the frozen model by hash. It is not "th
 published before the game": score, fouls and the five on the floor do not exist before tip-off.
 
 57. **Source for 2026-27 games: wait for the mirror, and replay 2025-26 as if live to test the flow.** That was
-    the default given for this session. The mirror has no `cdnnba_2026` archive as of 2026-11-17. A script for
+    the default given for this session. The mirror has no `cdnnba_2026` archive as of 2026-11-21 (it lists `wnba_cdnnba_2026`, which `bulk` used to mistake for it). A script for
     your own machine (`scripts/fetch_nba_api.py`) is written and unit-tested against a fake client but was never
     run against nba.com, and nothing in this repo calls cdn.nba.com or stats.nba.com from the cloud.
 58. **Three commands.** `train --through D` freezes models on games up to D. `predict --date D` writes one file
@@ -194,3 +194,9 @@ published before the game": score, fouls and the five on the floor do not exist 
 71. **`nba_api` is not a project dependency.** The fetch script imports it lazily and tells you to
     `pip install nba_api` on your own machine. It sends browser-like headers to reach the CDN; whether to use it
     is the terms decision in step 1.0a.
+72. **`scripts/nightly.sh` commits nothing by default** (`PUBLISH=none`). `sums` commits only the checksum files,
+    `full` the per-game files. What gets published is the owner's decision after the terms check.
+73. **Replay of 2025-26, as built:** model frozen through 2026-03-01 (3,366 games), then 2026-03-02 to 03-15
+    predicted and scored one date at a time: 14 dates, 105 games, about 4 s per `predict` and per `score`.
+    Logged and recomputed baselines agree to 5e-05 (rounding). Last game's starters were 83% of the next game's.
+    The replay log lives in `data/real/predictions_replay` (gitignored), never in `predictions/`.

@@ -11,9 +11,12 @@
    requests, and nba_api gets through with browser-like headers.
 
 ## Then, still MVP
-- Nightly job: pull yesterday's games, write timestamped predictions before tip-off, commit them, so the
-  scorecard is prospective (brief section 8). Not built; today's held-out season is retrospective.
-- 2026-27 games: not in the mirror yet as of this run.
+- ~~Prospective log~~: built (`train`, `predict`, `score`; README "Prospective log"). Rehearsed on 2025-26 as a
+  replay: 14 dates, 105 games. **Nothing has been logged before a real game yet.** That starts on your machine:
+  1. `pip install nba_api`, then `python scripts/fetch_nba_api.py --season 2026-27` until it reports nothing left.
+  2. `python -m tendency verify-fields` on one fetched game: the real boxscore's field names are from docs only.
+  3. `python -m tendency train --through <yesterday>`, then the cron line in the README.
+- 2026-27 games: still not in the mirror on 2026-11-21 (only the WNBA 2026 archives are).
 - ~~Real team names and full player names~~: done (`tendency/teams.py`, matchups archives).
 - ~~CI~~: done, `.github/workflows/ci.yml`.
 

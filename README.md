@@ -61,6 +61,55 @@ python -m tendency inspect 0022500001              # every possession
 python -m tendency inspect 0022500001 --only odd   # and-ones, heaves, technicals, anything unexplained
 ```
 
+## Prospective log
+
+The scorecard's retrospective splits were computed after the games were played. The prospective log is the
+stricter test: freeze a model, write a file for each game before tip-off that names the model by SHA-256, commit
+it, and score that same model once the game is final. The commit time is the proof.
+
+What a pregame file can honestly hold is limited: the score, the fouls and the five on the floor do not exist
+yet. So `predictions/YYYY-MM-DD/<gameId>.json` holds each team's projected five, its baseline shares, and the
+model's probabilities for four fixed reference situations. Possession-by-possession predictions are made after
+the game by the frozen model and scored against the baseline. Design and limits: `DECISIONS.md` 57-71.
+
+Once, and again whenever you want a fresher model:
+
+```bash
+python -m tendency train --through 2026-11-20      # freezes data/real/models/through-2026-11-20 (not in git; keep it)
+```
+
+Every day, before the first tip (the two commands):
+
+```bash
+python -m tendency score                           # yesterday: score the frozen model on the games logged for it
+python -m tendency predict                         # today: one pregame file per scheduled game
+```
+
+Dates are US Eastern and default to yesterday and today; pass `--date YYYY-MM-DD` to override. `predict` needs
+the day's schedule in `data/real/schedule/<date>.json` and `score` needs the finished games on disk. Until the
+mirror carries the current season, both come from `scripts/fetch_nba_api.py`, which must run on your own machine
+(nba.com refuses cloud hosts) and has never been run against nba.com: read its header first.
+`scripts/nightly.sh` chains fetch, score and predict. A crontab line for a Mac in Chicago, 9:30 am, which is
+after the last West Coast game is final and before the earliest noon-Eastern tip:
+
+```
+30 9 * * * cd $HOME/code/nba-tendency-board && PUBLISH=none ./scripts/nightly.sh >> data/nightly.log 2>&1
+```
+
+`PUBLISH=none` commits nothing; `sums` commits only each date's `SHA256SUMS` (timestamps the log without
+publishing names or numbers); `full` commits the per-game files. Which one is a terms decision, not a technical
+one. cron does not run while the laptop sleeps: a log written after tip-off is kept, counted as late, and left
+out of the prospective numbers.
+
+`score` refuses any model but the one the log names (by hash), refuses a model trained through a date on or
+after the game, and refuses a pregame file that no longer matches its checksum. To rehearse the whole flow on
+games already on disk, add `--replay` to `predict` and point `--log-dir` somewhere outside `predictions/`; a
+replay is marked as such in every file and the app labels it "not prospective evidence".
+
+```bash
+python -m tendency build --root data/real --out data/real_export --predictions predictions   # export with the log
+```
+
 Other commands: `python -m tendency build` (everything after ingest, from files on disk),
 `python -m tendency validate app/data`, `node app/tools/check-contract.mjs` (same check with the app's validator).
 
@@ -80,6 +129,7 @@ tendency/             pipeline package
   ingest.py           fetch raw JSON as landed; idempotent; backoff; clear stop on a blocked host
   possessions.py      one row per possession; edge-case rules in the module docstring
   inspect.py          one game's possessions beside the raw actions, with a reconciliation summary
+  prospective.py      freeze a model, log before tip-off, score after; the scorecard's prospective block
   features.py         context / pregame / in-game features and the baselines (DuckDB)
   models.py           splits, LightGBM per head, log-loss with game-bootstrap intervals, reliability
   tendencies.py       simple shrinkage estimate for the team report (labeled as such)
