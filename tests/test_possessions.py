@@ -322,3 +322,25 @@ def test_basket_plus_flagrant_free_throw_is_two_possessions_for_the_same_team(ga
     assert [(r["off_team_id"], r["ending_type"], r["points"], r["and_one"], r["retained_ft"]) for r in rows[:2]] == \
         [(HOME, "shot", 2, False, False), (HOME, "foul_drawn", 3, False, True)]
     assert rows[1]["finisher_id"] == 103
+
+
+# ---- found on the first real nba_api fetch (game 0022600001, 2026-11-21): the live feed has no `area` ----
+def test_a_shot_at_the_hoop_is_a_rim_shot_whatever_area_says():
+    """Tips and dunks are logged at x = y = 0, distance 0, and the feed calls 44% of them "Mid-Range"."""
+    tip = {F.ACTION_TYPE: "2pt", F.X_LEGACY: 0.0, F.Y_LEGACY: 0.0, F.SHOT_DISTANCE: 0.0}
+    assert shot_family({**tip, F.AREA: "Mid-Range"}) == "rim"
+    assert shot_family({**tip, F.AREA: "Restricted Area"}) == "rim"
+    assert shot_family(tip) == "rim"
+    assert shot_family({**tip, F.SHOT_DISTANCE: 14.0, F.AREA: "Mid-Range"}) == "midrange"        # coordinates missing, distance known: trust area
+    assert shot_family({F.ACTION_TYPE: "2pt", F.X_LEGACY: 120.0, F.Y_LEGACY: 90.0, F.SHOT_DISTANCE: 15.0, F.AREA: "Mid-Range"}) == "midrange"
+
+
+def test_coordinate_rule_matches_the_feeds_own_boundaries():
+    two, three = {F.ACTION_TYPE: "2pt"}, {F.ACTION_TYPE: "3pt"}
+    assert shot_family({**two, F.X_LEGACY: 0, F.Y_LEGACY: 43}) == "rim"                # 4.3 ft: still restricted area in the feed
+    assert shot_family({**two, F.X_LEGACY: 0, F.Y_LEGACY: 46}) == "paint"
+    assert shot_family({**two, F.X_LEGACY: 81, F.Y_LEGACY: 20}) == "midrange"          # outside the lane
+    assert shot_family({**two, F.X_LEGACY: 10, F.Y_LEGACY: 140}) == "midrange"         # beyond the free-throw line
+    assert shot_family({**three, F.X_LEGACY: 225, F.Y_LEGACY: 89}) == "corner3"
+    assert shot_family({**three, F.X_LEGACY: 225, F.Y_LEGACY: 90}) == "above_break3"
+    assert shot_family({**two, F.SHOT_DISTANCE: 4.3}) == "rim" and shot_family({**two, F.SHOT_DISTANCE: 6}) == "paint"

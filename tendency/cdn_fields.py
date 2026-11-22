@@ -119,6 +119,12 @@ TIMEOUTS_PER_GAME = 7                # ignores the Q4 cap and overtime grants
 PENALTY_TEAM_FOULS = 4               # in the penalty once the defense has this many in a quarter
 PENALTY_TEAM_FOULS_OT = 3            # ... or this many in an overtime period; plus the last-two-minutes rule
 HEAVE_MAX_CLOCK_S = 3.0
+# Shot location from legacy coordinates (tenths of a foot, hoop at 0,0), used when `area` is absent (the
+# live CDN feed fetched 2026-11-21 has none) and tuned against `area` on 160k shots from 2023-26:
+RIM_MAX_FT = 4.4                     # the feed's "Restricted Area" runs to about 4.4 ft, not 4.0
+CORNER3_MAX_Y = 89.5                 # corner threes end where the line starts to arc
+PAINT_HALF_WIDTH = 80.0              # lane is 16 ft wide
+PAINT_MAX_Y = 137.5                  # free-throw line, measured from the hoop
 HEAVE_MIN_DISTANCE_FT = 40.0
 SYNTHETIC_MARKER = "_synthetic"      # top-level key our generator writes; never in real data
 

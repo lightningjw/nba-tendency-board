@@ -75,24 +75,31 @@ def is_technical(a: dict) -> bool:
 
 
 def shot_family(a: dict) -> str | None:
-    """Shot family from the `area` field, falling back to legacy coordinates, then distance."""
+    """Shot family from the feed's `area`, or from legacy coordinates when the feed has no `area`.
+
+    One override comes first: a two-point shot logged exactly at the hoop (x = y = 0, distance 0) is
+    a rim shot whatever `area` says. Those are tips, dunks and layups, and the feed labels 44% of them
+    "Mid-Range" (it depends on which basket), which made about one "midrange" label in nine a dunk.
+    The coordinate rule agrees with `area` on 99.4% of two-point shots and 99.9% of threes (2023-26).
+    """
+    is3 = _low(a, F.ACTION_TYPE) == F.T_3PT
+    x, y, d = a.get(F.X_LEGACY), a.get(F.Y_LEGACY), a.get(F.SHOT_DISTANCE)
+    has_xy = isinstance(x, (int, float)) and isinstance(y, (int, float))
+    if has_xy and not is3 and x == 0 and y == 0 and (d is None or d == 0):
+        return "rim"
     fam = F.AREA_TO_FAMILY.get(_low(a, F.AREA))
     if fam:
         return fam
-    is3 = _low(a, F.ACTION_TYPE) == F.T_3PT
-    x, y = a.get(F.X_LEGACY), a.get(F.Y_LEGACY)
-    if isinstance(x, (int, float)) and isinstance(y, (int, float)):
-        dist = (x * x + y * y) ** 0.5 / 10.0
+    if has_xy:
         if is3:
-            return "corner3" if y <= 92.5 else "above_break3"
-        if dist <= 4.0:
+            return "corner3" if y <= F.CORNER3_MAX_Y else "above_break3"
+        if (x * x + y * y) ** 0.5 / 10.0 <= F.RIM_MAX_FT:
             return "rim"
-        return "paint" if abs(x) <= 80 and y <= 137.5 else "midrange"
-    d = a.get(F.SHOT_DISTANCE)
+        return "paint" if abs(x) <= F.PAINT_HALF_WIDTH and y <= F.PAINT_MAX_Y else "midrange"
     if isinstance(d, (int, float)):
         if is3:
             return "above_break3"      # cannot separate corners without coordinates
-        return "rim" if d <= 4 else ("paint" if d <= 8 else "midrange")
+        return "rim" if d <= F.RIM_MAX_FT else ("paint" if d <= 8 else "midrange")
     return None
 
 
