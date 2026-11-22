@@ -57,7 +57,8 @@ def download_archive(name: str, root: Path, session: requests.Session | None = N
             raise HostBlockedError(f"A proxy refused the connection to {LIST_URL}.") from e
         except requests.exceptions.RequestException as e:
             raise IngestError(f"could not read the nba_data file list: {e}") from e
-        if listing.status_code != 200 or f"{name}=" not in listing.text:
+        # whole-line match: "cdnnba_2026=" must not be satisfied by "wnba_cdnnba_2026="
+        if listing.status_code != 200 or not any(line.startswith(f"{name}=") for line in listing.text.splitlines()):
             raise IngestError(f"nba_data has no {name} archive (HTTP {listing.status_code}). Seasons start at 2020.")
         url = RAW_URL.format(name=name)
         log(f"bulk: downloading {name}")

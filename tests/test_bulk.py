@@ -181,3 +181,18 @@ def test_a_truncated_archive_is_removed_with_a_clear_error(tmp_path):
     with pytest.raises(IngestError, match="not a readable archive"):
         download_archive("matchups_2025", tmp_path, object(), log=lambda _: None)
     assert not (tmp_path / "bulk" / "matchups_2025.tar.xz").exists()
+
+
+def test_a_wnba_archive_of_the_same_year_is_not_mistaken_for_the_nba_one(tmp_path):
+    """Seen 2026-11-21: the mirror lists wnba_cdnnba_2026 but no cdnnba_2026 yet."""
+    from tendency.bulk import download_archive
+
+    class Listing:
+        status_code, text = 200, "cdnnba_2025=https://x/cdnnba_2025.tar.xz\nwnba_cdnnba_2026=https://x/wnba_cdnnba_2026.tar.xz\n"
+
+    class Session:
+        def get(self, url, **k):
+            assert url.endswith("list_data.txt"), f"must not try to download {url}"
+            return Listing()
+    with pytest.raises(IngestError, match="no cdnnba_2026 archive"):
+        download_archive("cdnnba_2026", tmp_path, Session(), log=lambda _: None)
