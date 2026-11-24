@@ -10,9 +10,10 @@ import numpy as np
 import pandas as pd
 
 from . import CONTRACT_VERSION
+from . import cdn_fields as F
 from .contract import SCHEMA_DIR, validate, validate_export_dir
-from .models import INTERVAL_LEVEL, ModelRun
-from .possessions import ENDING_CLASSES, SHOT_FAMILIES
+from .models import ALL_HEADS, HEADS, INTERVAL_LEVEL, ModelRun
+from .possessions import ACTION_STYLES, ENDING_CLASSES, SHOT_FAMILIES, TEMPO_CLASSES
 from . import tendency_validation
 from .hot_hand import hot_hand_report
 from .prospective import scorecard_block
@@ -29,6 +30,41 @@ TENDENCY_NOTE = ("Deviations are estimated on the logit scale with partial pooli
 SYNTHETIC_NOTICE = ("SYNTHETIC SAMPLE DATA. Teams, players, games and every number shown are invented by a simulator "
                     "to exercise the pipeline and the app. Nothing here is an NBA result.")
 REAL_NOTICE = "Built from public NBA play-by-play. Predictions are shown only for games the models never trained on."
+
+
+def label_coverage(poss: pd.DataFrame, games: list[dict]) -> list[dict]:
+    """The step 2.2 labels: where each comes from, when it is defined, and on what share of possessions."""
+    n = int(len(poss))
+    checks = sum(int(g.get("tag_checks", 0)) for g in games)
+    tags = None
+    if checks:
+        sc, ft = sum(g["second_chance_agree"] for g in games) / checks, sum(g["from_turnover_agree"] for g in games) / checks
+        tags = (f"Two tags from the same scorer can be checked against this pipeline: second-chance agrees with its offensive-rebound "
+                f"count on {sc:.1%} of {checks:,} tagged possessions, and from-turnover with how the possession started on {ft:.1%}.")
+    untimed = sum(bool(g.get("untimed_rebounds")) for g in games)
+    lag = (f"In {untimed:,} of {len(games):,} games the feed stamps a defensive rebound with the missed shot's clock; possessions that start "
+           f"off one are taken to begin {F.UNTIMED_REBOUND_LAG_S:.0f} seconds later, the usual gap where the feed does time it.") if untimed else None
+    rows = [("action_style", "What kind of shot ended it", "Shot descriptor and subType, mapped to ten styles", "action_style",
+             "the possession ends in a shot that is not an end-of-period heave", None),
+            ("creation", "Assisted or not, and by whom", "The assist credited on the basket", "assisted",
+             "the possession ends in a made basket; the feed credits no assist on a miss", None),
+            ("secs_to_first_action", "Seconds to the first shot, turnover or trip to the line", "Period clock at the start and at that first action",
+             "secs_to_first_action", "the possession has one", lag),
+            ("tempo", f"Early (within {F.TEMPO_EARLY_MAX_S:.0f} s), middle or late ({F.TEMPO_LATE_MIN_S:.0f} s or more)", "The same clocks; the feed has no shot clock",
+             "tempo", f"the period had at least {F.SHOT_CLOCK_S:.0f} seconds left when the possession started", None),
+            ("fast_break", "Fast break", "The scorer's tag on the shot or its free throws, added after the fact", "fast_break",
+             "the possession ends in a shot or at the line; turnovers carry no tag", tags),
+            ("two_for_one", "Two-for-one taken or passed up", "Period clock", "two_for_one_taken",
+             f"the possession starts with {F.TWO_FOR_ONE_MIN_START_S:.0f} to {F.TWO_FOR_ONE_MAX_START_S:.0f} seconds left in the period; taken means "
+             f"the first action came with {F.TWO_FOR_ONE_SHOOT_BY_S:.0f} or more left", None)]
+    out = []
+    for lid, label, source, col, when, note in rows:
+        if col not in poss.columns:
+            continue
+        d = int(poss[col].notna().sum())
+        out.append({"id": lid, "label": label, "source": source, "defined_when": when, "n_defined": d, "n_possessions": n,
+                    "coverage": round(d / n, 4) if n else 0.0, "note": note})
+    return out
 
 
 def _dump(path: Path, obj: dict) -> None:
@@ -135,10 +171,13 @@ def export_all(out: Path, poss: pd.DataFrame, games: list[dict], run: ModelRun, 
                 "off_lineup": [int(x) for x in r.off_lineup],
                 "actual": {"ending_type": r.ending_type, "finisher_id": None if _none(r.finisher_id) is None else int(r.finisher_id),
                            "shot_family": _none(r.shot_family), "shot_made": None if _none(r.shot_made) is None else bool(r.shot_made),
-                           "points": int(r.points), "and_one": bool(r.and_one), "n_off_reb": int(r.n_off_reb)},
+                           "points": int(r.points), "and_one": bool(r.and_one), "n_off_reb": int(r.n_off_reb),
+                           "action_style": _none(r.action_style), "assisted": None if _none(r.assisted) is None else bool(r.assisted),
+                           "assister_id": None if _none(r.assister_id) is None else int(r.assister_id),
+                           "secs_to_first_action": None if _none(r.secs_to_first_action) is None else round(float(r.secs_to_first_action), 1),
+                           "tempo": _none(r.tempo), "fast_break": None if _none(r.fast_break) is None else bool(r.fast_break)},
                 "eligible": has_pred, "ineligible_reason": reason,
-                "pred": None if p is None else {h: {"model": list(p[f"{h}_model"]), "baseline": list(p[f"{h}_baseline"])}
-                                                for h in ("finisher", "ending_type", "shot_family")},
+                "pred": None if p is None else {h: {"model": list(p[f"{h}_model"]), "baseline": list(p[f"{h}_baseline"])} for h in ALL_HEADS},
             })
         g = info[gid]
         doc = {"game_id": gid, "data_kind": kind, "season": int(g["season"]), "tipoff_utc": _iso(order[gid]), "split": run.splits[gid],
@@ -175,6 +214,13 @@ def export_all(out: Path, poss: pd.DataFrame, games: list[dict], run: ModelRun, 
             {"id": "shot_family", "label": "Where the shot comes from", "classes": SHOT_FAMILIES,
              "class_labels": ["Rim", "Paint", "Midrange", "Corner 3", "Above-break 3"], "conditional_on": "the possession ends in a shot",
              "baseline": "The offense's shot mix from games before tip-off, shrunk toward the league's"},
+            {"id": "action_style", "label": "What kind of shot it is", "classes": ACTION_STYLES, "class_labels": F.ACTION_STYLE_LABELS,
+             "conditional_on": "the possession ends in a shot",
+             "baseline": "The style mix of the five on the floor, each player's own from games before tip-off, weighted by usage and shrunk toward the league's"},
+            {"id": "tempo", "label": "How early the first action comes", "classes": TEMPO_CLASSES,
+             "class_labels": [f"Early, within {F.TEMPO_EARLY_MAX_S:.0f} s", "Middle", f"Late, {F.TEMPO_LATE_MIN_S:.0f} s or more"],
+             "conditional_on": f"the period had at least {F.SHOT_CLOCK_S:.0f} seconds left when the possession started",
+             "baseline": "The offense's early, middle and late shares on possessions that started the same way, from games before tip-off, shrunk toward the league's"},
         ],
         "splits": {"rule": "By game and by season, never by possession. Last season held out whole; latest 20% of earlier games held out; "
                            "models train on the rest (latest 15% of it only picks the tree count).",
@@ -183,11 +229,14 @@ def export_all(out: Path, poss: pd.DataFrame, games: list[dict], run: ModelRun, 
         "quality": {"n_possessions": int(len(poss)), "lineup_ok_rate": round(float(poss["lineup_ok"].mean()), 4),
                     "n_anomalous_possessions": int((poss["ending_type"] == "unknown").sum()), "n_heaves": int(poss["is_heave"].sum()),
                     "n_period_end": int((poss["ending_type"] == "period_end").sum())},
+        "labels": label_coverage(poss, games),
         "field_names_verified": bool(fields_verified), "not_built": NOT_BUILT,
         "files": {"teams": "teams.json", "games": "games.json", "scorecard": "scorecard.json",
                   "tendency_validation": "tendency_validation.json", "hot_hand": "hot_hand.json",
                   "team_reports_dir": "team_reports", "replays_dir": "replays", "schemas_dir": "schemas"},
     }
+    for h in manifest["heads"]:
+        h["logged_before_tipoff"] = h["id"] in HEADS          # the step 2.2 heads are scored looking back only
     validate(manifest, "manifest")
     _dump(out / "manifest.json", manifest)
     counts = validate_export_dir(out)

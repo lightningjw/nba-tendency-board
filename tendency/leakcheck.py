@@ -26,6 +26,12 @@ def scramble_outcomes(poss: pd.DataFrame, mask: np.ndarray) -> pd.DataFrame:
     new_fin = [None if len(l) == 0 else int(l[-1]) if f == l[0] else int(l[0])
                for l, f in zip(out["off_lineup"].values[idx], old_fin)]
     out.loc[out.index[idx], "finisher_id"] = pd.array(new_fin, dtype="Int64")
+    # step 2.2 labels: a turnover becomes a floater, anything else loses its style; tempo flips early <-> late
+    if "action_style" in out.columns:
+        out.loc[out.index[idx], "action_style"] = pd.Series(np.where(was_tov, "floater", None), index=out.index[idx], dtype=object)
+    if "tempo" in out.columns:
+        old = out["tempo"].values[idx]
+        out.loc[out.index[idx], "tempo"] = pd.Series(np.where(old == "early", "late", "early"), index=out.index[idx], dtype=object)
     return out
 
 

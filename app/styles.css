@@ -233,3 +233,8 @@ details table { font-size: 0.84rem; margin-top: 6px; }
   .tv.hh .plot { display: none; }
   .tv.hh th, .tv.hh td { padding: 7px 5px; white-space: normal; }
 }
+
+/* method page: the label coverage table reads as text, so its cells wrap and align left */
+.tv.labels td { white-space: normal; text-align: left; vertical-align: top; }
+.tv.labels td:last-child { text-align: right; white-space: nowrap; }
+.tv.labels tbody th { vertical-align: top; }

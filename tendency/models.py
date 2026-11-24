@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 
 from .features import FEATURES, Features
-from .possessions import ENDING_CLASSES, SHOT_FAMILIES
+from .possessions import ACTION_STYLES, ENDING_CLASSES, SHOT_FAMILIES, TEMPO_CLASSES
 
 SEED = 7
 HOLDOUT_GAME_FRACTION = 0.20
@@ -31,7 +31,13 @@ MIN_TRAIN_GAMES = 8
 EPS = 1e-9
 LGB_PARAMS = dict(learning_rate=0.04, num_leaves=15, min_data_in_leaf=80, feature_fraction=0.8, bagging_fraction=0.8,
                   bagging_freq=1, lambda_l2=10.0, verbose=-1, seed=SEED, num_threads=2, deterministic=True, force_col_wise=True)
-HEADS = ["finisher", "ending_type", "shot_family"]
+HEADS = ["finisher", "ending_type", "shot_family"]      # the heads a frozen model carries and the pregame log scores
+EXTRA_HEADS = ["action_style", "tempo"]                 # step 2.2: scored on held-out games only, not logged before tip-off
+ALL_HEADS = HEADS + EXTRA_HEADS
+# head -> (classes, prefix of its baseline columns). Action style starts from the lineup's usage-weighted
+# style mix, not the team's: the team mix ignores who is on the floor, which is the easier baseline to beat.
+MULTICLASS = {"ending_type": (ENDING_CLASSES, "base_end_"), "shot_family": (SHOT_FAMILIES, "base_fam_"),
+              "action_style": (ACTION_STYLES, "lineup_sty_"), "tempo": (TEMPO_CLASSES, "base_tmp_")}
 
 
 class NotEnoughData(RuntimeError):
@@ -223,13 +229,13 @@ def run_models(feat: Features, log=print) -> ModelRun:
     part = poss["game_id"].map(splits).values
     heads_out, rounds, cols = [], {}, {}
 
-    # ---- ending type and shot family: multiclass ------------------------------------
-    for head, classes, base_prefix in (("ending_type", ENDING_CLASSES, "base_end_"), ("shot_family", SHOT_FAMILIES, "base_fam_")):
+    # ---- ending type, shot family, action style, tempo: multiclass ---------------------
+    for head, (classes, base_prefix) in MULTICLASS.items():
         X = poss[FEATURES[head]].astype(np.float32)
         base = poss[[base_prefix + c for c in classes]].values
         base = base / base.sum(axis=1, keepdims=True)
         label = poss[head].map({c: i for i, c in enumerate(classes)})
-        has = label.notna().values                     # shot family exists only when the possession ended in a shot
+        has = label.notna().values                     # e.g. shot family exists only when the possession ended in a shot
         y = label.fillna(0).astype(int).values
         fit_part = np.where(has, part, "unused")
         bst, r = fit_multiclass(X, y, base, fit_part, len(classes))
@@ -259,7 +265,7 @@ def run_models(feat: Features, log=print) -> ModelRun:
 
     held = np.isin(part, ["holdout_games", "holdout_season"])
     preds = poss.loc[held, ["game_id", "poss_idx"]].copy()
-    for head in HEADS:
+    for head in ALL_HEADS:
         Pm, Pb = cols[head]
         preds[f"{head}_model"] = [np.round(v, 4).tolist() for v in Pm[held]]
         preds[f"{head}_baseline"] = [np.round(v, 4).tolist() for v in Pb[held]]

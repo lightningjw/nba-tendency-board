@@ -90,7 +90,7 @@ def method_preds(first: pd.DataFrame, drift: dict | None = None) -> dict[str, Pr
     d = expit(est["rate_logit"].values[:, None] + _rng("hierarchical", "draws").standard_normal((len(est), N_DRAWS)) * est["rate_sd"].values[:, None])
     shipped = layer.estimate(cand, drift) if drift else est      # rows are ranked the way the report ranks them
     order = pd.DataFrame({"team": shipped["team_id"].astype(str).values, "key": shipped["key"].values,
-                          "score": [layer._to_row(c, {})["rank_score"] for c in shipped.itertuples()]}).sort_values(["score", "key"], ascending=[False, True])
+                          "score": [layer._row_and_z(c, {})[1] for c in shipped.itertuples()]}).sort_values(["score", "key"], ascending=[False, True])
     out["hierarchical"] = Pred(keys, d.mean(axis=1), d, {t: g["key"].tolist() for t, g in order.groupby("team")})
     return out
 

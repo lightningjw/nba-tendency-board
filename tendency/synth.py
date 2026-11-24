@@ -43,6 +43,21 @@ QUIRKS = {
 }
 
 
+# Step 2.2 labels need something to label. Shot descriptors by subType, with weights; "" is no descriptor.
+DESCRIPTORS = {
+    "three": (["", "pullup", "step back", "running"], [0.62, 0.22, 0.12, 0.04]),
+    "mid": (["pullup", "", "fadeaway", "turnaround fadeaway", "step back", "turnaround"], [0.40, 0.15, 0.15, 0.10, 0.10, 0.10]),
+    "float": (["driving floating", "floating"], [0.7, 0.3]),
+    "Layup": (["driving", "running", "cutting", "", "driving finger roll"], [0.47, 0.18, 0.14, 0.09, 0.12]),
+    "Dunk": (["cutting", "running", "driving", "alley-oop", ""], [0.30, 0.25, 0.20, 0.15, 0.10]),
+    "Hook": (["turnaround", "", "driving"], [0.5, 0.3, 0.2]),
+}
+ARCH_STYLE = {"guard": {"pullup": 1.7, "step back": 1.6, "": 0.8}, "wing": {"": 1.4, "cutting": 1.3}, "big": {"cutting": 1.5, "pullup": 0.4, "step back": 0.3}}
+ASSIST_P = {"cutting": 0.97, "alley-oop": 1.0, "": 0.85, "pullup": 0.3, "step back": 0.25, "driving": 0.45, "driving finger roll": 0.45,
+            "driving floating": 0.5, "floating": 0.5, "running": 0.7, "putback": 0.0, "tip": 0.0}
+STYLE_QUIRK = (2, "q4", "pullup", 3.0)       # team index 2 takes three times its usual share of pull-ups in the fourth quarter
+
+
 def _team_id(i: int) -> int:
     return 9900001 + i
 
@@ -68,7 +83,9 @@ def make_league(rng: np.random.Generator) -> list[dict]:
                 "skill": rng.normal(1.0, 0.05), "minutes_w": [3.4, 3.2, 3.0, 2.8, 2.6, 1.6, 1.4, 1.2, 0.9, 0.7][pi],
             })
         league.append({"idx": ti, "team_id": _team_id(ti), "tricode": tri, "city": "Sample", "name": name,
-                       "end_mix": end_mix, "shot_mix": shot_mix, "players": players})
+                       "end_mix": end_mix, "shot_mix": shot_mix, "players": players, "pace": 1.0})
+    for t, pace in zip(league, rng.lognormal(0, 0.10, len(league))):     # drawn last, so the teams above are the ones the older tests know
+        t["pace"] = float(pace)                              # some teams play faster; the tempo labels pick it up
     return league
 
 
@@ -213,15 +230,26 @@ class GameSim:
         return {F.X_LEGACY: int(x), F.Y_LEGACY: int(y), F.AREA: area,
                 F.SHOT_DISTANCE: round(float((x * x + y * y) ** 0.5) / 10, 2), "isFieldGoal": 1}
 
-    def free_throws(self, off: int, shooter: int, n: int) -> bool:
+    def free_throws(self, off: int, shooter: int, n: int, tags: list[str] | None = None) -> bool:
         """Shoot n free throws. Returns True if the last one was made."""
         made = False
         for k in range(1, n + 1):
             made = self.rng.random() < 0.77
             if made:
                 self.score[off] += 1
-            self.ev("freethrow", f"{k} of {n}", off, shooter, shotResult="Made" if made else "Missed")
+            self.ev("freethrow", f"{k} of {n}", off, shooter, shotResult="Made" if made else "Missed", qualifiers=list(tags or []))
         return made
+
+    def descriptor(self, sub: str, fam: str, is3: bool, arch: str, second_chance: bool, q_style: bool) -> str:
+        r = self.rng
+        if second_chance and sub in ("Layup", "Dunk") and r.random() < 0.5:
+            return "putback" if r.random() < 0.55 else "tip"
+        key = "three" if is3 else "mid" if fam == "midrange" else "float" if sub == "Jump Shot" else sub
+        words, w = DESCRIPTORS[key]
+        w = np.array(w) * np.array([ARCH_STYLE[arch].get(x, 1.0) for x in words])
+        if q_style:
+            w = w * np.array([STYLE_QUIRK[3] if x == STYLE_QUIRK[2] else 1.0 for x in words])
+        return str(r.choice(words, p=w / w.sum()))
 
     def rebound(self, off: int, p_off: float) -> bool:
         """Emit a rebound. Returns True if the offense kept the ball."""
@@ -255,12 +283,18 @@ class GameSim:
         self.pending_timeout = False
         quirk = QUIRKS.get(T["idx"], (None, None))[0]
         q_on = bool(quirk and sit[quirk])
-        dur = r.uniform(5, 22)
+        quick = start_type in ("turnover", "def_rebound")
+        dur = (r.uniform(2, 16) if quick else r.uniform(7, 23)) / T["pace"]
+        fast_break = quick and dur < 7 and r.random() < 0.6
+        base_tags = (["fromturnover"] if start_type == "turnover" else []) + (["fastbreak"] if fast_break else [])
+        n_oreb = 0
+        q_style = T["idx"] == STYLE_QUIRK[0] and sit[STYLE_QUIRK[1]]
         if dur > self.clock - 0.6:
             dur = self.clock - r.uniform(0.3, min(2.0, self.clock - 0.5))
         self.clock -= dur
         self.elapsed += dur
         while True:
+            tags = base_tags + (["2ndchance"] if n_oreb else [])
             on = self.on[off]
             w = np.array([T["players"][i]["usage"] for i in on])
             if q_on and T["idx"] == 1 and 0 in on:
@@ -275,8 +309,9 @@ class GameSim:
                 self.ev("foul", "personal", d, int(r.choice(self.on[d])), **{F.FOUL_DRAWN_PERSON_ID: P["player_id"]},
                         qualifiers=["inpenalty"] if in_pen else [])
                 if in_pen:
-                    if self.free_throws(off, fi, 2) or not self.rebound(off, 0.12):
+                    if self.free_throws(off, fi, 2, tags) or not self.rebound(off, 0.12):
                         return "free_throw" if self.actions[-1][F.ACTION_TYPE] == "freethrow" else "def_rebound"
+                    n_oreb += 1
                     continue
                 self.tick(2, 8)
                 if self.clock <= 0.2:
@@ -307,10 +342,11 @@ class GameSim:
             if end == "foul_drawn":
                 self.fouls[d] += 1
                 self.ev("foul", "personal", d, int(r.choice(self.on[d])), descriptor="shooting", **{F.FOUL_DRAWN_PERSON_ID: P["player_id"]})
-                if self.free_throws(off, fi, 3 if r.random() < 0.06 else 2):
+                if self.free_throws(off, fi, 3 if r.random() < 0.06 else 2, tags):
                     return "free_throw"
                 if not self.rebound(off, 0.12):
                     return "def_rebound"
+                n_oreb += 1
                 self.tick(1, 6)
                 continue
             pm = 0.4 * T["shot_mix"] + 0.6 * P["shot_mix"]
@@ -324,25 +360,28 @@ class GameSim:
             is3 = fam in ("corner3", "above_break3")
             made = r.random() < MAKE_P[fam] * P["skill"]
             geo = self.shot_geometry(fam)
-            sub = "Jump Shot" if is3 or fam == "midrange" else str(r.choice(["Layup", "Dunk", "Hook"], p=[0.7, 0.2, 0.1]))
+            sub = "Jump Shot" if is3 or fam == "midrange" or (fam == "paint" and r.random() < 0.5) else str(r.choice(["Layup", "Dunk", "Hook"], p=[0.7, 0.2, 0.1]))
+            desc = self.descriptor(sub, fam, is3, P["arch"], n_oreb > 0, q_style)
+            shot_tags = tags + (["pointsinthepaint"] if fam in ("rim", "paint") else [])
             if made:
                 self.score[off] += 3 if is3 else 2
                 extra = {}
                 mates = [i for i in on if i != fi]
-                if r.random() < 0.6:
+                if r.random() < ASSIST_P.get(desc, 0.4):
                     extra[F.ASSIST_PERSON_ID] = self.pid(off, int(r.choice(mates)))
-                self.ev("3pt" if is3 else "2pt", sub, off, fi, shotResult="Made", **geo, **extra)
+                self.ev("3pt" if is3 else "2pt", sub, off, fi, shotResult="Made", descriptor=desc, qualifiers=shot_tags, **geo, **extra)
                 if r.random() < (0.06 if fam in ("rim", "paint") else 0.012):   # and-one
                     self.fouls[d] += 1
                     self.ev("foul", "personal", d, int(r.choice(self.on[d])), descriptor="shooting", **{F.FOUL_DRAWN_PERSON_ID: P["player_id"]})
-                    if self.free_throws(off, fi, 1):
+                    if self.free_throws(off, fi, 1, tags):
                         return "free_throw"
                     if not self.rebound(off, 0.10):
                         return "def_rebound"
+                    n_oreb += 1
                     self.tick(1, 6)
                     continue
                 return "made_basket"
-            self.ev("3pt" if is3 else "2pt", sub, off, fi, shotResult="Missed", **geo)
+            self.ev("3pt" if is3 else "2pt", sub, off, fi, shotResult="Missed", descriptor=desc, qualifiers=shot_tags, **geo)
             if r.random() < 0.07:
                 self.ev("block", "", d, int(r.choice(self.on[d])))
             if self.clock <= 0.3:
@@ -350,6 +389,7 @@ class GameSim:
                 return "period_start"                        # buzzer: no rebound logged
             if not self.rebound(off, 0.30 if fam in ("rim", "paint") else 0.22):
                 return "def_rebound"
+            n_oreb += 1
             self.tick(1, 6)
 
     # -- whole game ---------------------------------------------------------------

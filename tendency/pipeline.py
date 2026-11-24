@@ -51,6 +51,11 @@ def build_possessions(root: Path, log=print) -> tuple[pd.DataFrame, list[dict]]:
     poss["tipoff"] = pd.to_datetime(poss["tipoff_utc"], utc=True, format="ISO8601").dt.tz_localize(None)
     poss["finisher_id"] = poss["finisher_id"].astype("Int64")
     poss["shot_made"] = poss["shot_made"].astype("boolean")
+    for c in ("assisted", "fast_break", "two_for_one_taken"):         # true / false / not defined
+        poss[c] = poss[c].astype("boolean")
+    poss["assister_id"] = poss["assister_id"].astype("Int64")
+    for c in ("first_action_clock_s", "secs_to_first_action"):
+        poss[c] = poss[c].astype("float64")
     proc = root / "processed"
     proc.mkdir(parents=True, exist_ok=True)
     poss.to_parquet(proc / "possessions.parquet", index=False)
