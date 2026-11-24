@@ -4,13 +4,14 @@ import { validate } from "./validate.js";
 
 const DATA = "data/";
 const SCHEMAS = ["manifest", "teams", "team_report", "games", "replay", "scorecard"];
-const VIEWS = ["method", "team", "replay", "scorecard"];
+const OPTIONAL = ["tendency_validation", "hot_hand"];      // contract 1.2; an older export has neither and still renders
+const VIEWS = ["method", "team", "replay", "scorecard", "hothand"];
 const FAMS = ["rim", "paint", "midrange", "corner3", "above_break3"];
 const HEADS = ["finisher", "ending_type", "shot_family"];
 const $ = (sel) => document.querySelector(sel);
 
 const S = {
-  schemas: {}, manifest: null, teams: null, games: null, scorecard: null,
+  schemas: {}, manifest: null, teams: null, games: null, scorecard: null, tendency_validation: null, hot_hand: null,
   teamId: null, reports: {}, gameId: null, replays: {}, idx: 0,
   guess: false, picks: {}, revealed: false, scored: new Set(),
   tally: Object.fromEntries(HEADS.map((h) => [h, { n: 0, you: 0, model: 0, baseline: 0 }])),
@@ -21,6 +22,8 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&
 const int = (n) => Number(n).toLocaleString("en-US");
 const pct = (p, d = 0) => (p > 0 && p < 0.005 && d === 0 ? "<1%" : `${(p * 100).toFixed(d)}%`);
 const pts = (x) => `${x >= 0 ? "+" : "−"}${Math.abs(x * 100).toFixed(1)}`;
+const seasonName = (y) => `${y}-${String((y + 1) % 100).padStart(2, "0")}`;       // seasons are stored by their start year
+const signed = (v, d) => { const t = Math.abs(v).toFixed(d); return `${Number(t) === 0 ? "" : v > 0 ? "+" : "−"}${t}`; };     // never "−0.000"
 const argmax = (a) => a.indexOf(Math.max(...a));
 const periodName = (p) => (p <= 4 ? `Q${p}` : `OT${p - 4}`);
 const clock = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
@@ -154,7 +157,7 @@ async function renderMethod() {
         <p class="small muted">Training: ${int(sp.train.n_games)} games. Held out: ${int(sp.holdout_games.n_games)} games and ${int(sp.holdout_season.n_games)} games in a separate season.</p></div>
       <div class="sheet"><h3>Nothing from the future</h3><p>Season-to-date numbers for a game use only games that tipped off earlier. In-game counts use only earlier possessions. A test rewrites later outcomes and fails if any feature moves.</p></div>
       <div class="sheet"><h3>Looking back, until logged ahead</h3><p>Held-out results are computed after the games were played. The stricter test is a file written before tip-off that names a frozen model by its hash, scored after the game. ${S.scorecard.prospective && S.scorecard.prospective.available && S.scorecard.prospective.mode === "live" ? `${int(S.scorecard.prospective.n_games)} games have been logged that way so far.` : "No game has been logged that way yet; the scorecard says so."}</p></div>
-      <div class="sheet"><h3>Uncertainty on every number</h3><p>Scorecard intervals resample whole games. Each probability in the replay sits beside how often calls like it came true on held-out games. Tendencies show an interval and a sample size, and are ranked by the cautious end of the interval.</p></div>
+      <div class="sheet"><h3>Uncertainty on every number</h3><p>Scorecard intervals resample whole games. Each probability in the replay sits beside how often calls like it came true on held-out games. Tendencies show an interval and a sample size, and are ranked by ${m.tendency_method.final ? "how probable it is that they are big enough to matter" : "the cautious end of the interval"}.</p></div>
     </div>
   </section>
 
@@ -163,7 +166,7 @@ async function renderMethod() {
       <div class="sheet"><h3>No play calls, no coverages</h3><p>The feed records what ended a possession, not the set that was called or how the pick-and-roll was defended. Those need tracking or video. Nothing here predicts or implies them.</p></div>
       <div class="sheet"><h3>Lineups are reconstructed</h3><p>Who is on the floor comes from starters plus substitution events; where the source has no boxscore, starters are the first five players to act. ${pct(m.quality.lineup_ok_rate, 1)} of ${int(m.quality.n_possessions)} possessions reconstruct to five a side; the rest are left out of scoring.</p>
         <p class="small muted">${int(m.quality.n_heaves)} end-of-period heaves and ${int(m.quality.n_period_end)} possessions cut off by the horn are also left out. ${int(m.quality.n_anomalous_possessions)} changes of possession could not be explained by the segmenter.</p></div>
-      <div class="sheet"><h3>Tendencies are a first pass</h3><p>${esc(m.tendency_method.label)}. ${esc(m.tendency_method.note)}</p></div>
+      <div class="sheet"><h3>${m.tendency_method.final ? "Tendencies are deviations, not rankings" : "Tendencies are a first pass"}</h3><p>${esc(m.tendency_method.label)}. ${esc(m.tendency_method.note)}</p></div>
     </div>
   </section>
 
@@ -183,7 +186,13 @@ async function renderTeam() {
   const maxAbs = Math.max(0.01, ...r.tendencies.flatMap((x) => x.interval.map(Math.abs))) * 1.08;
   const X = (v) => (150 + (v / maxAbs) * 142).toFixed(1);
   const unit = (x) => (x.scope === "player" ? "possessions on the floor" : x.outcome.head === "shot_family" ? "shots" : "possessions");
-  const versus = { league_same_situation: "the league rate", team_overall_plus_league_shift: "expected from the team's overall rate and the league-wide shift in this situation", player_overall: "his share across all situations" };
+  const versus = { league_same_situation: "the league rate", team_overall_plus_league_shift: "expected from the team's overall rate and the league-wide shift in this situation", player_overall: "his share across all situations",
+    team_elsewhere_plus_league_shift: "expected from the team's rate in its other possessions and the league-wide shift in this situation",
+    player_lineup_adjusted: "what his usage and the four teammates on the floor predict" };
+  // Contract 1.2 rows carry the probability they were ranked by. Older exports do not, and keep the older wording.
+  const ranked = r.threshold !== undefined && r.tendencies.every((x) => x.prob_beyond !== undefined);
+  const thr = ranked ? (r.threshold * 100).toFixed(0) : null;
+  const point = (n) => `${n} point${n === "1" ? "" : "s"}`;
   const rows = r.tendencies.map((x) => {
     const up = x.deviation >= 0, col = !x.excludes_zero ? "#6E7580" : up ? "#2447D6" : "#C8253A";
     return `<li class="${x.excludes_zero ? "" : "weak"}">
@@ -191,21 +200,31 @@ async function renderTeam() {
         <div class="nums">${pct(x.raw_rate, 1)} observed on ${int(x.n)} ${unit(x)}; ${pct(x.baseline_rate, 1)} is ${versus[x.baseline_kind]}.</div></div>
       <div><span class="dev ${up ? "up" : "down"}">${pts(x.deviation)} pts</span>
         <span class="small muted"> ${lvl}% interval ${pts(x.interval[0])} to ${pts(x.interval[1])}${x.excludes_zero ? "" : ", includes zero"}</span>
+        ${ranked ? `<div class="small muted">${pct(x.prob_beyond)} likely to be more than ${point(thr)} ${up ? "above" : "below"} baseline</div>` : ""}
         <svg class="ivl" viewBox="0 0 300 34" role="img" aria-label="Deviation ${pts(x.deviation)} points, interval ${pts(x.interval[0])} to ${pts(x.interval[1])}, n ${x.n}">
           <line class="axis" x1="4" y1="17" x2="296" y2="17"/><line class="zero" x1="150" y1="4" x2="150" y2="30"/>
           <line class="bar" x1="${X(x.interval[0])}" y1="17" x2="${X(x.interval[1])}" y2="17" stroke="${col}"/>
           <circle class="dot" cx="${X(x.deviation)}" cy="17" r="5.5" stroke="${col}"/></svg></div></li>`;
   }).join("");
   const flagged = r.tendencies.filter((x) => x.excludes_zero).length;
+  const doubtful = ranked ? r.tendencies.reduce((a, x) => a + 1 - x.prob_beyond, 0) : 0;
+  const tv = S.tendency_validation && S.tendency_validation.available ? S.tendency_validation : null;
+  const sel = tv && tv.selection.find((x) => x.method === tv.shipped);
+  const checked = sel ? ` Checked on the ${seasonName(tv.season)} season: fitted on its first half, the ${lvl}% intervals of the rows each team would have been shown held ${pct(sel.coverage_with_drift ?? sel.coverage, 1)} of what the second half produced (${int(sel.n_rows)} rows). <a href="#scorecard">The full check is on the scorecard.</a>` : "";
+  const intro = ranked
+    ? `A tendency is how far a rate sits from its baseline, in percentage points. Small samples are pulled toward the baseline, by an amount set from how much teams and players really differ. Rows are ordered by how likely the tendency is to be more than ${point(thr)} in its direction, so a big estimate on a thin sample does not jump the queue.`
+    : `${r.method.final ? "" : "This is a stand-in until the partial-pooling model is fitted, and it is labeled that way on purpose. "}A tendency is how far a rate sits from its baseline, in percentage points. Small samples are pulled toward the baseline. Rows are ordered by the end of the interval nearest zero, so a big estimate on a thin sample does not jump the queue.`;
+  const outro = ranked
+    ? `These ${r.tendencies.length} rows were picked from ${int(r.n_candidates)} candidates. Going by each row's own probability, about ${doubtful.toFixed(1)} of the ${r.tendencies.length} shown ${r.tendencies.length === 1 ? "is" : "are"} expected to be smaller than ${point(thr)} or to point the other way. Intervals include the baseline's own uncertainty${r.drift_included ? " and how much tendencies moved between the two halves of the season before, so they describe the games to come and not only the ones played" : "; they do not allow for tendencies changing, because there is no earlier season here to measure that on"}. Player rows are measured against what his usage and the four teammates on the floor predict.${checked}`
+    : `These ${r.tendencies.length} rows were picked from ${int(r.n_candidates)} candidates, and ${flagged} have a ${lvl}% interval clear of zero. With that many candidates, roughly ${Math.round(r.n_candidates * (1 - r.interval_level))} would clear zero by chance alone. Intervals treat the baseline as exact, which makes them a little narrow. Player rows do not adjust for who else is on the floor.`;
   $("#view").innerHTML = `
   <div class="pagehead"><div><h2>Team report: ${esc(t.name)}</h2>
     <p class="muted">${int(r.n_possessions)} offensive possessions in ${int(r.n_games)} games, through ${day(r.as_of_utc)}.</p></div>
     <div class="pick" role="group" aria-label="Team">${teams.map((x) => `<button data-team="${x.team_id}" aria-pressed="${x.team_id === S.teamId}" title="${esc(x.name)}">${esc(x.tricode)}</button>`).join("")}</div></div>
   <div class="sheet">
-    <p><strong>${esc(r.method.label)}.</strong> ${r.method.final ? "" : "This is a stand-in until the partial-pooling model is fitted, and it is labeled that way on purpose."}
-    A tendency is how far a rate sits from its baseline, in percentage points. Small samples are pulled toward the baseline. Rows are ordered by the end of the interval nearest zero, so a big estimate on a thin sample does not jump the queue.</p>
+    <p><strong>${esc(r.method.label)}.</strong> ${intro}</p>
     ${r.tendencies.length ? `<ul class="tend">${rows}</ul>` : `<p class="note plain">No situation has at least 25 possessions for this team yet. Ingest more games and run the export again.</p>`}
-    <p class="note plain">These ${r.tendencies.length} rows were picked from ${int(r.n_candidates)} candidates, and ${flagged} have a ${lvl}% interval clear of zero. With that many candidates, roughly ${Math.round(r.n_candidates * (1 - r.interval_level))} would clear zero by chance alone. Intervals treat the baseline as exact, which makes them a little narrow. Player rows do not adjust for who else is on the floor.</p>
+    <p class="note plain">${outro}</p>
   </div>`;
   document.querySelectorAll("[data-team]").forEach((b) => b.addEventListener("click", () => { S.teamId = Number(b.dataset.team); render(); }));
 }
@@ -391,17 +410,102 @@ function renderScorecard() {
   ${sc.heads.map((h) => `<div class="sheet"><h2 style="margin-bottom:4px">${esc(head(h.head).label)}</h2>
     <p class="small muted">Baseline: ${esc(head(h.head).baseline)}.${head(h.head).conditional_on ? ` Scored only when ${esc(head(h.head).conditional_on)}.` : ""}</p>
     ${h.splits.map((s) => block(h, s)).join("")}</div>`).join("")}
-  <p class="note plain">Intervals: ${esc(sc.bootstrap)}. Calibration pools every class: each dot is a band of predicted probabilities and how often those calls came true.</p>`;
+  <p class="note plain">Intervals: ${esc(sc.bootstrap)}. Calibration pools every class: each dot is a band of predicted probabilities and how often those calls came true.</p>
+  ${tendencyCheck()}`;
+}
+
+// ---------- scorecard: does the tendency layer predict the half-season it has not seen? ----------
+function tendencyCheck() {
+  const v = S.tendency_validation;
+  if (!v) return "";                                   // an export from before contract 1.2: nothing to show, nothing claimed
+  const head2 = `<h2 class="lookback">Team-report tendencies, checked</h2>
+    <p class="muted" style="margin-top:0">The team report is fitted on the first half of a season and asked to predict the second, against two simpler ways of doing the same job.</p>`;
+  if (!v.available) return `${head2}<div class="sheet"><p class="note plain">Not available: ${esc(v.reason || "too little data")}.</p></div>`;
+  const lvl = Math.round(v.interval_level * 100), V = { ahead: "Ahead of the stand-in", level: "Level with the stand-in", behind: "Behind the stand-in" };
+  const cls = { ahead: "model_better", level: "inconclusive", behind: "baseline_better" };
+  const what = { team: "Team rows", player: "Player rows" };
+  const drift = v.drift.available;
+  const slice = (s) => {
+    const ship = s.methods.find((m) => m.method === v.shipped);
+    return `<div class="splitname"><h3>${what[s.scope]}</h3>${ship && ship.verdict ? `<span class="verdict ${cls[ship.verdict]}">${V[ship.verdict]}</span>` : ""}</div>
+    <div class="scroll"><table class="tv"><thead><tr><th>Fitted on the first half</th><th>Log-loss, second half</th><th>Against the stand-in (95% interval)</th>
+      <th>${lvl}% intervals held</th>${drift ? `<th>With the drift term</th>` : ""}<th>Interval width${drift ? ", with drift" : ""}</th></tr></thead><tbody>
+      ${s.methods.map((m) => { const d = m.with_drift || m, vs = d.vs_stand_in; return `<tr class="${m.method === v.shipped ? "ship" : ""}"><th>${esc(m.label)}${m.method === v.shipped ? ` <span class="tag">in the report</span>` : ""}</th>
+        <td>${d.log_loss.toFixed(5)}</td><td>${m.method === "stand_in" ? "the reference" : `${signed(vs.diff, 6)} (${signed(vs.interval[0], 6)} to ${signed(vs.interval[1], 6)})`}</td>
+        <td>${pct(m.coverage, 1)}</td>${drift ? `<td>${pct(m.with_drift.coverage, 1)}</td>` : ""}<td>${pts(d.interval_width).slice(1)} pts</td></tr>`; }).join("")}
+    </tbody></table></div>
+    <p class="small muted">${int(s.n_cells)} cells (one ${s.scope}, one situation, one outcome) with at least ${v.min_n} trials in each half; ${int(s.n_trials)} second-half trials. Every method is scored on the same cells.${drift ? " Log-loss and width are with the drift term added." : ""}</p>`;
+  };
+  const sdPts = (sd) => (sd * 0.1875 * 100).toFixed(1);          // a logit-scale sd read at a 25% rate, in percentage points
+  const rateDrift = v.drift.rate.map((d) => `${d.scope} rates ${d.sd.toFixed(3)} (about ${sdPts(d.sd)} points at a 25% rate; ${int(d.n_cells)} cells)`).join(", ");
+  const control = v.control.map((c) => `${pct(c.coverage, 1)} of ${int(c.n_cells)} ${c.scope} cells`).join(" and ");
+  const ship = v.selection.find((x) => x.method === v.shipped), old = v.selection.find((x) => x.method === "stand_in");
+  const selText = (x) => `${pct(x.coverage, 1)}${x.coverage_with_drift !== null ? ` as fitted and ${pct(x.coverage_with_drift, 1)} with the drift term` : ""} (${int(x.n_rows)} rows)`;
+  return `${head2}
+  <div class="sheet">
+    <p>Season ${seasonName(v.season)}: ${int(v.n_games_first)} games to fit on, ${int(v.n_games_second)} to predict. Log-loss scores each method's rate for a cell against what the second half did (lower is better). "Intervals held" is how often a ${lvl}% interval for the second-half count contained the count; a calibrated method scores about ${lvl}%.</p>
+    ${v.slices.map(slice).join("")}
+    <div class="splitname"><h3>Why the intervals needed a drift term</h3></div>
+    <ul class="plainlist">
+      ${control ? `<li>Split the same season by alternating games instead of by date, so no time passes between the halves, and raw-rate intervals hold ${control}. The shortfall above is teams and players changing, not the interval arithmetic.</li>` : ""}
+      ${drift ? `<li>How much they change was measured on the ${seasonName(v.drift.season)} season (${int(v.drift.n_games)} games), never on the season being scored: the spread between halves that binomial noise does not explain, on the logit scale, is ${rateDrift}.</li>
+      <li>The deviation a report row shows moves less than the rate itself: ${v.drift.deviation.map((d) => `${esc(d.label.toLowerCase())}, ${d.sd.toFixed(3)} (${int(d.n_cells)} cells)`).join("; ")}.</li>` : `<li>There is no earlier season in this export to measure drift on, so the intervals here do not include it.</li>`}
+    </ul>
+    <div class="splitname"><h3>The rows a report would have shown</h3></div>
+    <p>Picking each team's top ten from a couple of hundred candidates favours rows that got lucky. ${ship ? `For the top ten the report's method would have shown, ${lvl}% intervals held ${selText(ship)}.` : ""} ${old ? `For the top ten the old stand-in would have shown, ${selText(old)}.` : ""}</p>
+    ${v.deviation.length ? `<p class="small muted">The interval drawn on a report row is for the deviation from baseline. Against the second half's deviation it held: ${v.deviation.map((d) => `${esc(d.label.toLowerCase())}, ${pct(d.coverage_with_drift ?? d.coverage, 1)} of ${int(d.n_cells)}`).join("; ")}.</p>` : ""}
+    <p class="note plain">Log-loss interval: ${esc(v.bootstrap)}. A verdict needs that whole interval on one side of zero.</p>
+  </div>`;
+}
+
+// ---------- view: hot hand ----------
+function renderHotHand() {
+  const h = S.hot_hand;
+  const headHtml = `<div class="pagehead"><div><h2>Hot hand</h2>
+    <p class="muted">After a player makes a shot, does he finish his team's next possession more often, and does that possession score more? One league-wide question, kept apart from the team reports.</p></div></div>`;
+  if (!h) { $("#view").innerHTML = `${headHtml}<div class="sheet"><p class="note plain">This export has no hot-hand report. It was made before the report existed; run the export again to add it.</p></div>`; return; }
+  if (!h.available) { $("#view").innerHTML = `${headHtml}<div class="sheet"><p class="note plain">Not available: ${esc(h.reason || "too little data")}.</p></div>`; return; }
+  const lvl = Math.round(h.interval_level * 100), synth = h.data_kind === "synthetic";
+  const mk = h.after.find((a) => a.prior === "make"), ms = h.after.find((a) => a.prior === "miss"), d = h.make_minus_miss;
+  const p2 = (x) => `${signed(x * 100, 1)}`, f3 = (x) => signed(x, 3);
+  const span = Math.max(0.001, ...[mk, ms].flatMap((a) => a.share_vs_expected.interval.map(Math.abs)), ...d.share.interval.map(Math.abs)) * 1.1;
+  const spanP = Math.max(0.001, ...[mk, ms].flatMap((a) => a.points_vs_team.interval.map(Math.abs)), ...d.points.interval.map(Math.abs)) * 1.1;
+  const bar = (e, sp, label) => { const X = (v) => (150 + (v / sp) * 142).toFixed(1), clear = e.interval[0] > 0 || e.interval[1] < 0, col = !clear ? "#6E7580" : e.value >= 0 ? "#2447D6" : "#C8253A";
+    return `<svg class="ivl" viewBox="0 0 300 34" role="img" aria-label="${esc(label)}"><line class="axis" x1="4" y1="17" x2="296" y2="17"/><line class="zero" x1="150" y1="4" x2="150" y2="30"/>
+      <line class="bar" x1="${X(e.interval[0])}" y1="17" x2="${X(e.interval[1])}" y2="17" stroke="${col}"/><circle class="dot" cx="${X(e.value)}" cy="17" r="5.5" stroke="${col}"/></svg>`; };
+  const shareRow = (name, a) => `<tr><th>${name}</th><td>${pct(a.share, 1)}</td><td>${pct(a.expected_share, 1)}</td><td>${p2(a.share_vs_expected.value)} pts<br><span class="small muted">${p2(a.share_vs_expected.interval[0])} to ${p2(a.share_vs_expected.interval[1])}</span></td>
+    <td class="plot">${bar(a.share_vs_expected, span, `${name}: ${p2(a.share_vs_expected.value)} points against expected`)}</td><td>${int(a.n)}</td></tr>`;
+  const ptsRow = (name, a) => `<tr><th>${name}</th><td>${a.points.toFixed(3)}</td><td>${f3(a.points_vs_team.value)}<br><span class="small muted">${f3(a.points_vs_team.interval[0])} to ${f3(a.points_vs_team.interval[1])}</span></td>
+    <td class="plot">${bar(a.points_vs_team, spanP, `${name}: ${f3(a.points_vs_team.value)} points against the team's average`)}</td><td>${int(a.n)}</td></tr>`;
+  const VS = { rises: "He finishes the next one more often", falls: "He finishes the next one less often", no_clear_difference: "No clear difference in who finishes" };
+  const VP = { more: "The possession scores more", fewer: "The possession scores less", no_clear_difference: "No clear difference in points" };
+  const vc = (v) => (v === "no_clear_difference" ? "inconclusive" : v === "rises" || v === "more" ? "model_better" : "baseline_better");
+  $("#view").innerHTML = `${headHtml}
+  ${synth ? `<p class="note">These numbers come from simulated games, where nothing makes a player more likely to shoot after a make. They show the report runs; they say nothing about NBA players.</p>` : ""}
+  <div class="sheet">
+    <div class="splitname"><h3>Who finishes the next possession</h3><span class="verdict ${vc(h.verdict.share)}">${VS[h.verdict.share]}</span></div>
+    <div class="scroll"><table class="tv hh"><thead><tr><th>The trip before</th><th>He finished</th><th>Expected</th><th>Difference (${lvl}% interval)</th><th class="plot"></th><th>Possessions</th></tr></thead><tbody>
+      ${shareRow("After his make", mk)}${shareRow("After his miss", ms)}
+      <tr class="ship"><th>Make minus miss</th><td></td><td></td><td>${p2(d.share.value)} pts<br><span class="small muted">${p2(d.share.interval[0])} to ${p2(d.share.interval[1])}</span></td><td class="plot">${bar(d.share, span, `Make minus miss: ${p2(d.share.value)} points`)}</td><td>${int(mk.n + ms.n)}</td></tr>
+    </tbody></table></div>
+    <div class="splitname"><h3>What the next possession scores</h3><span class="verdict ${vc(h.verdict.points)}">${VP[h.verdict.points]}</span></div>
+    <div class="scroll"><table class="tv hh"><thead><tr><th>The trip before</th><th>Points</th><th>Against team average (${lvl}% interval)</th><th class="plot"></th><th>Possessions</th></tr></thead><tbody>
+      ${ptsRow("After his make", mk)}${ptsRow("After his miss", ms)}
+      <tr class="ship"><th>Make minus miss</th><td></td><td>${f3(d.points.value)}<br><span class="small muted">${f3(d.points.interval[0])} to ${f3(d.points.interval[1])}</span></td><td class="plot">${bar(d.points, spanP, `Make minus miss: ${f3(d.points.value)} points per possession`)}</td><td>${int(mk.n + ms.n)}</td></tr>
+    </tbody></table></div>
+    <p class="small muted" style="margin-top:14px">${esc(h.definition)} ${int(h.n_games)} games, season${h.seasons.length > 1 ? "s" : ""} ${h.seasons.map(seasonName).join(", ")}. Intervals: ${esc(h.bootstrap)}.</p>
+    <p class="note plain">How to read it. The make-minus-miss row is the hot-hand number. Both groups are players who took their team's last shot, so comparing one with the other removes whatever is true of recent shooters in general. It is an association. Play-by-play does not say who a play was run for, so this cannot tell a team looking for the hot player from a player hunting his own shot, or from a night when the matchup favoured him from the start.</p>
+  </div>`;
 }
 
 // ---------- routing and boot ----------
-const RENDER = { method: renderMethod, team: renderTeam, replay: renderReplay, scorecard: renderScorecard };
+const RENDER = { method: renderMethod, team: renderTeam, replay: renderReplay, scorecard: renderScorecard, hothand: renderHotHand };
 let lastView = null;
 
 async function render() {
   const view = VIEWS.includes(location.hash.slice(1)) ? location.hash.slice(1) : "method";
   document.querySelectorAll(".tabs a").forEach((a) => (a.dataset.view === view ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current")));
-  document.title = `${{ method: "Method", team: "Team report", replay: "Replay", scorecard: "Scorecard" }[view]} | Tendency Board`;
+  document.title = `${{ method: "Method", team: "Team report", replay: "Replay", scorecard: "Scorecard", hothand: "Hot hand" }[view]} | Tendency Board`;
   const keep = view === lastView ? window.scrollY : 0;
   try { await RENDER[view](); } catch (e) { showError(e); }
   if (view !== lastView) { lastView = view; window.scrollTo(0, 0); } else window.scrollTo(0, keep);
@@ -421,7 +525,14 @@ async function boot() {
     S.manifest = await getJSON("manifest.json", "manifest");
     const f = S.manifest.files;
     [S.teams, S.games, S.scorecard] = await Promise.all([getJSON(f.teams, "teams"), getJSON(f.games, "games"), getJSON(f.scorecard, "scorecard")]);
-    for (const d of [S.teams, S.games, S.scorecard]) if (d.data_kind !== S.manifest.data_kind) throw new ContractProblem("Files disagree about whether the data is synthetic or real.");
+    for (const name of OPTIONAL) {                       // listed in the manifest from contract 1.2 on; absent in older exports
+      if (!f[name]) continue;
+      const res = await fetch(`${DATA}schemas/${name}.schema.json`);
+      if (!res.ok) throw new Error(`Could not load the ${name} schema (HTTP ${res.status}). The data folder is incomplete; run the pipeline's export step.`);
+      S.schemas[name] = await res.json();
+      S[name] = await getJSON(f[name], name);
+    }
+    for (const d of [S.teams, S.games, S.scorecard, S.tendency_validation, S.hot_hand]) if (d && d.data_kind !== S.manifest.data_kind) throw new ContractProblem("Files disagree about whether the data is synthetic or real.");
   } catch (e) { showError(e); return; }
   S.teams.byId = new Map(S.teams.teams.map((t) => [t.team_id, t]));
   S.teams.players = new Map(S.teams.teams.flatMap((t) => t.players.map((p) => [p.player_id, p.name])));

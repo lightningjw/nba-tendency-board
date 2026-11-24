@@ -5,7 +5,7 @@
   "additionalProperties": false,
   "required": ["contract_version", "generated_at", "data_kind", "notice", "coverage", "heads", "splits", "tendency_method", "quality", "field_names_verified", "not_built", "files"],
   "properties": {
-    "contract_version": {"enum": ["1.0", "1.1"]},
+    "contract_version": {"enum": ["1.0", "1.1", "1.2"]},
     "generated_at": {"type": "string"},
     "data_kind": {"enum": ["synthetic", "real"]},
     "notice": {"type": "string"},
@@ -85,6 +85,8 @@
         "teams": {"type": "string"},
         "games": {"type": "string"},
         "scorecard": {"type": "string"},
+        "tendency_validation": {"type": "string"},
+        "hot_hand": {"type": "string"},
         "team_reports_dir": {"type": "string"},
         "replays_dir": {"type": "string"},
         "schemas_dir": {"type": "string"}

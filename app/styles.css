@@ -211,3 +211,25 @@ details table { font-size: 0.84rem; margin-top: 6px; }
 .sheet.pro .prohd { margin: 22px 0 -6px; }
 .sheet.pro .splitname h3 { font-size: 1rem; color: var(--pencil); }
 .lookback { margin: 30px 0 4px; }
+
+/* scorecard: the tendency check; hot hand. Wide tables scroll inside their sheet, never the page. */
+.scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.tv { width: 100%; border-collapse: collapse; min-width: 560px; }
+.tv th, .tv td { text-align: right; padding: 7px 8px; border-top: 1px solid var(--rule); vertical-align: middle; }
+.tv th:first-child, .tv td:first-child { text-align: left; }
+.tv thead th { border-top: 0; color: var(--pencil); font-weight: 500; font-size: 0.86rem; vertical-align: bottom; }
+.tv tbody th { font-weight: 600; }
+.tv td { white-space: nowrap; }
+.tv tr.ship th, .tv tr.ship td { background: var(--blue-soft); }
+.tv .tag { display: inline-block; font-size: 0.72rem; font-weight: 600; color: var(--blue); border: 1px solid var(--blue); border-radius: 4px; padding: 0 5px; margin-left: 4px; white-space: nowrap; background: var(--paper); }
+.tv.hh .plot { width: 30%; min-width: 150px; padding: 0 4px; }
+.plainlist { margin: 0 0 6px; padding-left: 18px; }
+.plainlist li { max-width: 76ch; }
+@media (max-width: 760px) {
+  .tabs a { padding: 11px 2px; font-size: 0.8rem; white-space: nowrap; }
+  /* on a phone the hot-hand tables drop the drawn interval (the numbers stay) so they fit without scrolling */
+  .tv.hh { min-width: 0; font-size: 0.86rem; }
+  .tv.hh thead th { font-size: 0.76rem; }
+  .tv.hh .plot { display: none; }
+  .tv.hh th, .tv.hh td { padding: 7px 5px; white-space: normal; }
+}
