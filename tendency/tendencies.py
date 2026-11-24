@@ -58,6 +58,16 @@ TEMPO_LABEL = {"early": f"Early share of possessions (first action within {F.TEM
                "late": f"Late share of possessions (first action after {F.TEMPO_LATE_MIN_S:.0f} s or more)"}
 
 
+# These two situations are read just before the deciding event, so a timeout or foul in the MIDDLE of a
+# possession sets them, and a possession interrupted that way is late by construction. No tempo rows there.
+MID_POSSESSION_SITUATIONS = {"after_timeout", "def_in_penalty"}
+
+
+def allowed(sid: str, head: str) -> bool:
+    """Is (situation, outcome family) a cell worth estimating? Shared by the stand-in, the layer and the validation."""
+    return not (head == "tempo" and sid in MID_POSSESSION_SITUATIONS)
+
+
 def _flag(df: pd.DataFrame, col: str) -> tuple[np.ndarray, np.ndarray]:
     """(is true, is defined) for a true / false / not-defined column."""
     s = df[col]
@@ -149,6 +159,8 @@ def team_reports(poss: pd.DataFrame, player_names: dict[int, str], top_k: int | 
     for sit in SITUATIONS:
         sm = masks[sit[0]]
         for head, cls, hit, denom, label in specs:
+            if not allowed(sit[0], head):
+                continue
             d = sm & denom
             n_all, k_all = int(d.sum()), int((d & hit).sum())
             if n_all < MIN_N or k_all in (0, n_all):

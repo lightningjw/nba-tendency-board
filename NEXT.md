@@ -42,6 +42,16 @@
   - The PyMC fit is a validation tool. It is not wired into the export and has no report rows of its own.
   - The hot-hand report is league-wide only: no per-team or per-player rows, no shot difficulty (not in the feed).
 
+## Step 2.2, done 2026-11-23: Phase 2 labels (DECISIONS.md 110 onward)
+- Labels on the possession table: action style, assisted and assister, seconds to the first action and tempo,
+  fast break, two-for-one. Two heads on top (action style, tempo), scored on held-out games only.
+- Left out:
+  - The two new heads are not in the pregame log. `train`, `predict` and `score` still handle three heads, so the
+    model frozen on 2026-11-20 keeps scoring. Adding them means a new frozen model and a log schema change.
+  - No passer-to-shooter pair rows: `assister_id` is on the table, nothing reads it yet.
+  - No player-scope rows for the new labels (a player's pull-up share after timeouts, say).
+  - `after_timeout` still counts a timeout taken in the middle of a possession (ASSUMPTIONS.md, "Debatable").
+
 ## Known weaknesses worth fixing early
 - Timeouts-left and the penalty flag use simplified rules (see ASSUMPTIONS.md).
 - The finisher model renormalises independent binary scores; a ranking objective may calibrate better.

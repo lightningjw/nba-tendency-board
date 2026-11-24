@@ -167,6 +167,10 @@ def test_new_head_features_are_registered_and_none_is_a_label_of_the_same_posses
         assert len(cols) == len(set(cols)) and not labels & set(cols)
         assert all(c in ft.KIND for c in cols)
     assert ft.KIND["two_for_one_window"] == "context"                  # known at the start: a situation, not an outcome
+    # tempo asks when the first action comes, so it may not see anything read mid-possession
+    mid = {"after_timeout", "def_in_penalty", "def_team_fouls_period", "off_team_fouls_period", "off_timeouts_left", "def_timeouts_left"}
+    assert not mid & set(ft.FEATURES["tempo"]) and not [c for c in ft.FEATURES["tempo"] if c.startswith("lineup_")]
+    assert mid <= set(ft.FEATURES["action_style"])                     # the other heads predict what happens next and may
     assert all(ft.KIND[c] == "pregame" for c in ft.PREGAME_STYLE + ft.PREGAME_TEMPO)
     assert all(ft.KIND[c] == "ingame" for c in ft.INGAME_STYLE + ft.INGAME_TEMPO)
 
@@ -191,7 +195,7 @@ def test_the_new_pregame_features_do_move_when_earlier_games_change(small_poss):
     tip = small_poss.loc[small_poss["game_id"] == games[30], "tipoff"].iloc[0]
     a = build_features(small_poss).poss
     b = build_features(scramble_outcomes(small_poss, (small_poss["tipoff"] < tip).values)).poss
-    for col in ("base_sty_floater", "lineup_sty_floater", "base_tmp_early"):
+    for col in ("base_sty_floater", "lineup_sty_floater", "start_sty_floater", "base_tmp_early"):
         va, vb = a.loc[a["game_id"] == games[30], col].values, b.loc[b["game_id"] == games[30], col].values
         n = min(len(va), len(vb))
         assert not np.allclose(va[:n], vb[:n]), col
@@ -227,7 +231,7 @@ def test_features_build_on_a_table_from_before_step_2_2(small_poss):
 # ---- baselines ------------------------------------------------------------------------------------------
 def test_new_baselines_are_probabilities_and_tempo_knows_how_the_possession_started(synth_run):
     f = build_features(synth_run["poss"]).poss
-    sty = f[[f"lineup_sty_{c}" for c in ACTION_STYLES]].values
+    sty = f[[f"start_sty_{c}" for c in ACTION_STYLES]].values
     tmp = f[[f"base_tmp_{c}" for c in F.TEMPO_CLASSES]].values
     assert np.allclose(sty.sum(axis=1), 1, atol=1e-6) and np.allclose(tmp.sum(axis=1), 1, atol=1e-6) and sty.min() > 0 and tmp.min() > 0
     late = f[f["tipoff"] > f["tipoff"].quantile(0.5)]
@@ -276,6 +280,8 @@ def test_team_reports_can_show_the_new_outcomes_and_a_planted_style_quirk_is_fou
     heads = {r["outcome"]["head"] for rs in rows.values() for r in rs}
     assert {"action_style", "creation", "tempo", "fast_break"} <= heads
     assert any(r["situation"]["id"] == "two_for_one" for rs in rows.values() for r in rs)
+    assert not [r for rs in rows.values() for r in rs if r["outcome"]["head"] == "tempo" and r["situation"]["id"] in ("after_timeout", "def_in_penalty")]
+    assert [r for rs in rows.values() for r in rs if r["outcome"]["head"] == "tempo" and r["situation"]["id"] == "start_turnover"]
     hit = [r for r in rows[9900003] if r["situation"]["id"] == "q4" and r["outcome"] == {"head": "action_style", "class": "pullup", "label": "Pull-up share of shots"}][0]
     assert hit["deviation"] > 0.02 and hit["excludes_zero"] and hit["prob_beyond"] > 0.9
     control = [r for r in rows[9900008] if r["situation"]["id"] == "q4" and r["outcome"]["class"] == "pullup"][0]

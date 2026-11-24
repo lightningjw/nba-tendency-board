@@ -154,9 +154,10 @@ async function renderMethod() {
 
   ${m.labels && m.labels.length ? `<section class="section"><h2>What the feed lets us label</h2>
     <p>Beyond who finished and where the shot came from, play-by-play says a few things about how a possession went. Each is defined on only part of the possessions, and the table says how much. All of them are outcomes: they are counted and predicted, never used to predict the possession they describe.</p>
-    <div class="sheet"><div class="scroll"><table class="tv labels"><thead><tr><th>Label</th><th>Read from</th><th>Defined when</th><th>Share of possessions</th></tr></thead><tbody>
-      ${m.labels.map((l) => `<tr><th>${esc(l.label)}</th><td>${esc(l.source)}</td><td>${esc(l.defined_when)}</td><td>${pct(l.coverage, 1)}<br><span class="small muted">${int(l.n_defined)} of ${int(l.n_possessions)}</span></td></tr>`).join("")}
-    </tbody></table></div>
+    <div class="sheet"><ul class="lab">
+      ${m.labels.map((l) => `<li><div><b>${esc(l.label)}</b><div class="small muted">Read from: ${esc(l.source.charAt(0).toLowerCase() + l.source.slice(1))}. Defined when ${esc(l.defined_when)}.</div></div>
+        <div class="cov"><b>${pct(l.coverage, 1)}</b><span class="small muted">${int(l.n_defined)} of ${int(l.n_possessions)} possessions</span></div></li>`).join("")}
+    </ul>
     ${m.labels.filter((l) => l.note).map((l) => `<p class="small muted" style="margin-top:10px">${esc(l.note)}</p>`).join("")}
     <p class="note plain">A shot's style is what the scorer wrote down about the shot ("driving", "pullup", "cutting"). It is not the play that was called, and nothing here says what the defense did.</p></div>
   </section>` : ""}

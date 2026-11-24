@@ -38,7 +38,7 @@ from scipy.special import expit, logit
 from scipy.stats import norm
 
 from .possessions import ENDING_CLASSES
-from .tendencies import SITUATIONS, outcome_specs, situation_masks
+from .tendencies import SITUATIONS, allowed, outcome_specs, situation_masks
 
 METHOD = {"id": "eb_hierarchical_logit", "label": "Partial pooling across teams, situations and players (empirical Bayes, hierarchical logit)",
           "final": True}                 # final because the half-season validation supports it; see DECISIONS.md 86-87
@@ -155,6 +155,8 @@ def cell_counts(poss: pd.DataFrame) -> pd.DataFrame:
     frames = []
     for sid, _ in SITUATIONS:
         for head, cls, hit, denom, _ in outcome_specs(df):
+            if not allowed(sid, head):
+                continue
             d = masks[sid] & denom
             g = pd.DataFrame({"game_id": game[d], "team_id": team[d], "k": hit[d].astype(np.int64)}).groupby(["game_id", "team_id"], sort=False)["k"].agg(["sum", "size"]).reset_index()
             frames.append(pd.DataFrame({"game_id": g["game_id"].values, "key": [cell_key(t, "team", None, sid, head, cls) for t in g["team_id"]],
@@ -192,6 +194,8 @@ def candidates(poss: pd.DataFrame) -> pd.DataFrame:
     for sid, slabel in SITUATIONS:
         sm = masks[sid]
         for head, cls, hit, denom, label in specs:
+            if not allowed(sid, head):
+                continue
             d_in, d_out = sm & denom, ~sm & denom
             n_in, k_in = by_team(d_in), by_team(d_in & hit)
             if sid == "all":

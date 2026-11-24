@@ -119,6 +119,43 @@ Run by the owner on his own machine. `verify-fields` passed everything except sh
   (234 of 234), lineups reconstruct on 100%, no unexplained changes, and the segmenter agrees with the feed's
   own `possession` field on 102 of 102 made-shot and turnover endings.
 
+## Phase 2 labels (step 2.2, 2026-11-23): what was profiled, and what the live feed does differently
+
+Profiled on 657,380 field-goal attempts in the three archive seasons and 42,347 in the 241 fetched 2026-27 games.
+
+| Item | Result |
+|---|---|
+| Shot `subType` values | four: Jump Shot, Layup, DUNK, Hook (plus one stray `shot` in 2026-27) |
+| Shot `descriptor` values | 31, the same set in every season and in the live feed; 32% of attempts have none |
+| (subType, descriptor) pairs | 50, each mapped to one of ten styles (`cdn_fields.ACTION_STYLE_RULES`; a test pins all 50) |
+| `assistPersonId` | on 63.5% of made baskets, never on a miss |
+| `qualifiers` on shots and free throws | `fastbreak`, `2ndchance`, `fromturnover`, `pointsinthepaint`, `defensivegoaltending`; on makes and misses alike |
+| Scorer's `2ndchance` tag vs this pipeline's offensive-rebound count | agree on 99.6% of 368,467 tagged possessions |
+| Scorer's `fromturnover` tag vs how the possession started | agree on 99.99% |
+| Mirror vs raw JSON | the CSV mirror joins qualifiers with ", " (leading space on all but the first); stripped on load |
+
+15. **The live CDN feed stamps a defensive rebound with the missed shot's clock.** 7,130 of 7,130 in 120 fetched
+    2026-27 games; in the archives the rebound is stamped when the ball was secured, a median 3 seconds later
+    (same clock on 6%). A possession that starts off a rebound therefore looks 3 seconds slower in the live feed:
+    early-clock share read 19.5% against 26 to 27% in every archive season. Games are now checked one by one
+    (at least 90% of their defensive rebounds sharing the shot's clock), and in those the tempo labels start the
+    possession 3 seconds after the rebound's clock. After that, the same 241 early-season games read 27.3% early
+    in 2026-27 against 27.8% in 2025-26. Only the tempo labels and the two-for-one window move; `start_clock_s`
+    stays as the feed gave it, because the frozen model was trained on it that way.
+
+Assumed, not checked:
+
+- **A style is the scorer's word for the shot**, entered by a person at the table. Nobody audited it against video.
+  `plain_jumper` (no descriptor) is 94% threes and 97% of its makes are assisted, so it is mostly catch-and-shoot,
+  but the feed never says so.
+- **Tempo uses the period clock**, since the feed has no shot clock. After a made basket it includes the inbound;
+  after a non-shooting foul the shot clock may have reset and the label cannot see it. Early is 8 seconds or
+  less, late is 16 or more: judgment calls that split possessions 27% / 38% / 35%.
+- **Two-for-one**: 30 to 45 seconds left at the start, taken if the first action comes with 27 or more left. Also
+  judgment calls. 2.4% of possessions; taken on 52%.
+- **Fast break is whatever the scorer tagged.** It exists only on possessions that end in a shot or at the line;
+  a fast break that ends in a turnover is not in the data.
+
 ## What the tendency layer assumes (step 2.1, 2026-11-23)
 
 Checked where it says checked; the rest is assumed.

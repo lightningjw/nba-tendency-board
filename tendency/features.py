@@ -40,6 +40,7 @@ E = [f"e_{c}" for c in ENDING_CLASSES]
 FA = [f"f_{c}" for c in SHOT_FAMILIES]
 SY = [f"s_{c}" for c in ACTION_STYLES]
 TM = [f"t_{st}_{c}" for st in START_TYPES for c in TEMPO_CLASSES]      # tempo counts by how the possession started
+US = [f"u_{st}_{c}" for st in START_TYPES for c in ACTION_STYLES]      # style counts by start type (league level only)
 
 CONTEXT = ["period", "start_clock_s", "game_secs_left", "margin_start", "off_is_home", "def_in_penalty",
            "def_team_fouls_period", "off_team_fouls_period", "off_timeouts_left", "def_timeouts_left",
@@ -53,10 +54,16 @@ INGAME_CAND = ["ig_p_fin", "ig_p_on", "ig_p_last"]
 
 # ---- step 2.2 heads: their own lists, so the three above are untouched ----
 CONTEXT_22 = ["two_for_one_window"]                                    # known when the possession starts
-PREGAME_STYLE = [f"base_sty_{c}" for c in ACTION_STYLES] + [f"lineup_sty_{c}" for c in ACTION_STYLES]
+PREGAME_STYLE = ([f"base_sty_{c}" for c in ACTION_STYLES] + [f"lineup_sty_{c}" for c in ACTION_STYLES]
+                 + [f"start_sty_{c}" for c in ACTION_STYLES])            # start_sty_* is the action-style baseline
 PREGAME_TEMPO = [f"base_tmp_{c}" for c in TEMPO_CLASSES]
 INGAME_STYLE = [f"ig_sty_{c}" for c in ACTION_STYLES]
 INGAME_TEMPO = [f"ig_tmp_{c}" for c in TEMPO_CLASSES]
+# Most context is read just before the deciding event (possessions.py), which is right for "what happens next".
+# Tempo asks WHEN the first action comes, so anything that changed mid-possession (a timeout, a foul, a
+# substitution) is a clue about elapsed time. The tempo head may only see what was known at the start:
+START_KNOWN = ["period", "start_clock_s", "game_secs_left", "margin_start", "off_is_home", "start_type_code", "clutch", "two_for_one_window"]
+PREGAME_TEAM = [c for c in PREGAME_POSS if not c.startswith("lineup_")]      # the five on the floor are read at the deciding event too
 PREGAME_POSS_ALL = PREGAME_POSS + PREGAME_STYLE + PREGAME_TEMPO
 INGAME_POSS_ALL = INGAME_POSS + INGAME_STYLE + INGAME_TEMPO
 LABELS_22 = ["action_style", "tempo"]
@@ -66,7 +73,7 @@ FEATURES = {
     "shot_family": CONTEXT + PREGAME_POSS + INGAME_POSS,
     "finisher": CONTEXT + PREGAME_CAND + INGAME_CAND,
     "action_style": CONTEXT + CONTEXT_22 + PREGAME_POSS + PREGAME_STYLE + INGAME_POSS + INGAME_STYLE,
-    "tempo": CONTEXT + CONTEXT_22 + PREGAME_POSS + PREGAME_TEMPO + INGAME_POSS + INGAME_TEMPO,
+    "tempo": START_KNOWN + PREGAME_TEAM + PREGAME_TEMPO + INGAME_POSS + INGAME_TEMPO,
 }
 KIND = {**{c: "context" for c in CONTEXT + CONTEXT_22},
         **{c: "pregame" for c in PREGAME_POSS_ALL + PREGAME_CAND},
@@ -114,8 +121,10 @@ def pregame_tables(poss: pd.DataFrame, only_games: list[str] | None = None) -> d
         s_cases = ", ".join(f"SUM(CASE WHEN action_style='{c}' THEN 1 ELSE 0 END) AS s_{c}" for c in ACTION_STYLES)
         t_cases = ", ".join(f"SUM(CASE WHEN start_type='{st}' AND tempo='{c}' THEN 1 ELSE 0 END) AS t_{st}_{c}"
                             for st in START_TYPES for c in TEMPO_CLASSES)
+        u_cases = ", ".join(f"SUM(CASE WHEN start_type='{st}' AND action_style='{c}' THEN 1 ELSE 0 END) AS u_{st}_{c}"
+                            for st in START_TYPES for c in ACTION_STYLES)
         con.execute(f"""CREATE TEMP TABLE tg AS
-            SELECT game_id, season, tipoff, off_team_id AS team_id, COUNT(*) AS n, {e_cases}, {f_cases}, {s_cases}, {t_cases}
+            SELECT game_id, season, tipoff, off_team_id AS team_id, COUNT(*) AS n, {e_cases}, {f_cases}, {s_cases}, {t_cases}, {u_cases}
             FROM e GROUP BY game_id, season, tipoff, off_team_id""")
         tcols = ["n"] + E + FA + SY + TM
         team = con.execute(f"""
@@ -124,7 +133,7 @@ def pregame_tables(poss: pd.DataFrame, only_games: list[str] | None = None) -> d
             LEFT JOIN tg b ON b.team_id = a.team_id AND b.tipoff < a.tipoff
             GROUP BY a.game_id, a.team_id""").df()
         league = con.execute(f"""
-            SELECT a.game_id, {_sums('b', tcols, 'lp_')}
+            SELECT a.game_id, {_sums('b', tcols + US, 'lp_')}
             FROM (SELECT DISTINCT game_id, tipoff FROM target) a
             LEFT JOIN tg b ON b.tipoff < a.tipoff
             GROUP BY a.game_id""").df()
@@ -177,6 +186,13 @@ def build_features(poss: pd.DataFrame, only_games: list[str] | None = None) -> F
         tot = lg[[f"lp_t_{st}_{c}" for c in TEMPO_CLASSES]].sum(axis=1)
         for c in TEMPO_CLASSES:
             lg[f"L_tmp_{st}_{c}"] = (lg[f"lp_t_{st}_{c}"] + 1.0) / (tot + len(TEMPO_CLASSES))
+    # how the league's style mix shifts with the way a possession started: a ratio per (start type, style), before each game
+    shift = np.empty((len(lg), len(START_TYPES), len(ACTION_STYLES)))
+    for i, st in enumerate(START_TYPES):
+        tot = lg[[f"lp_u_{st}_{c}" for c in ACTION_STYLES]].sum(axis=1).values
+        for j, c in enumerate(ACTION_STYLES):
+            shift[:, i, j] = ((lg[f"lp_u_{st}_{c}"].values + 1.0) / (tot + len(ACTION_STYLES))) / lg[f"L_sty_{c}"].values
+    shift_row = pd.Series(np.arange(len(lg)), index=lg["game_id"].values)
     lg = lg[["game_id"] + [c for c in lg.columns if c.startswith("L_")]]
 
     # ---- team baselines: shrunk season-to-date shares -----------------------------
@@ -287,6 +303,13 @@ def build_features(poss: pd.DataFrame, only_games: list[str] | None = None) -> F
     ex = ex.drop(columns=[f"p_sty_{c}" for c in ACTION_STYLES])
     df = df.merge(la, on=["gcode", "poss_idx"], how="left")
     del la, w
+    # action-style baseline: the lineup's mix, shifted by how the league's mix moves with this row's start type
+    code = df["start_type"].map({s: i for i, s in enumerate(START_TYPES)}).fillna(START_TYPES.index("other")).astype(int).values
+    adj = df[[f"lineup_sty_{c}" for c in ACTION_STYLES]].values * shift[shift_row.reindex(df["game_id"].values).values, code]
+    adj = adj / adj.sum(axis=1, keepdims=True)
+    for j, c in enumerate(ACTION_STYLES):
+        df[f"start_sty_{c}"] = adj[:, j]
+    del adj
 
     elig = df[df["model_eligible"]].sort_values(["gcode", "poss_idx"]).reset_index(drop=True)
     keep = ["game_id", "poss_idx", "season", "tipoff", "off_team_id", "off_lineup", "finisher_id", "ending_type", "shot_family"] + LABELS_22

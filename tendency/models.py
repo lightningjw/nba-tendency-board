@@ -34,10 +34,11 @@ LGB_PARAMS = dict(learning_rate=0.04, num_leaves=15, min_data_in_leaf=80, featur
 HEADS = ["finisher", "ending_type", "shot_family"]      # the heads a frozen model carries and the pregame log scores
 EXTRA_HEADS = ["action_style", "tempo"]                 # step 2.2: scored on held-out games only, not logged before tip-off
 ALL_HEADS = HEADS + EXTRA_HEADS
-# head -> (classes, prefix of its baseline columns). Action style starts from the lineup's usage-weighted
-# style mix, not the team's: the team mix ignores who is on the floor, which is the easier baseline to beat.
+# head -> (classes, prefix of its baseline columns). The two step 2.2 baselines both know how the possession
+# started, and the style one also knows who is on the floor. A first version of the style baseline (the
+# lineup's mix alone) lost to the model by 0.086; 85% of that was the start type, which is not a model.
 MULTICLASS = {"ending_type": (ENDING_CLASSES, "base_end_"), "shot_family": (SHOT_FAMILIES, "base_fam_"),
-              "action_style": (ACTION_STYLES, "lineup_sty_"), "tempo": (TEMPO_CLASSES, "base_tmp_")}
+              "action_style": (ACTION_STYLES, "start_sty_"), "tempo": (TEMPO_CLASSES, "base_tmp_")}
 
 
 class NotEnoughData(RuntimeError):
