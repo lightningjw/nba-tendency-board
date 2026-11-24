@@ -119,6 +119,24 @@ Run by the owner on his own machine. `verify-fields` passed everything except sh
   (234 of 234), lineups reconstruct on 100%, no unexplained changes, and the segmenter agrees with the feed's
   own `possession` field on 102 of 102 made-shot and turnover endings.
 
+## What the tendency layer assumes (step 2.1, 2026-11-23)
+
+Checked where it says checked; the rest is assumed.
+
+- **Deviations within a group are normal on the logit scale.** Checked only through coverage: displayed 90%
+  intervals held 89%, 91% and 90% of second-half deviations on 2025-26 by kind of row (86%, 89%, 93% on 2024-25).
+- **A count's noise is binomial.** Nearly: halves made by alternating games hold 88.6% (team) and 91.6% (player)
+  against a nominal 90%. The team shortfall is possessions within a game moving together; the drift term absorbs it.
+- **Change between halves has the same size from one season to the next.** Measured three times: 0.090, 0.108,
+  0.095 for team rates and 0.124, 0.101, 0.124 for player rates (sd, logit scale). Close enough to borrow.
+- **Half a season of drift is the right amount for a report of any age.** Not checked.
+- **A player's finishing share is his strength over the sum of the five strengths on the floor**, the same in
+  every situation unless the row says otherwise. Checked only through the player rows' out-of-sample gain.
+- **A teammate never seen outside the situation is an average finisher.** Rare on real rosters; it decided one
+  hand-built test world.
+- **Hot hand: the make-minus-miss gap is an association.** A night-long matchup advantage would produce part of it.
+  The gap halving by two trips later says part of it is short-lived, and nothing here separates the two.
+
 ## Verified from documentation only (nba_api docs, not a live file)
 
 - Endpoints: `cdn.nba.com/static/json/liveData/playbyplay/playbyplay_{gameId}.json` and
