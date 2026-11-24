@@ -2,9 +2,9 @@
 
 [![CI](https://github.com/lightningjw/nba-tendency-board/actions/workflows/ci.yml/badge.svg)](https://github.com/lightningjw/nba-tendency-board/actions/workflows/ci.yml)
 
-Tendency Board predicts three things about the next NBA possession from public play-by-play: who finishes it,
-how it ends, and where the shot comes from. Each prediction is scored against a simple baseline on games the
-model never saw, and the result is shown with its uncertainty whether it flatters the model or not. A tendency
+Tendency Board predicts five things about the next NBA possession from public play-by-play: who finishes it,
+how it ends, where the shot comes from, what kind of shot it is, and how early in the possession it comes. Each
+prediction is scored against a simple baseline on games the model never saw, and the result is shown with its uncertainty whether it flatters the model or not. A tendency
 layer turns the same possessions into scouting-style deviations ("more corner threes after timeouts than this
 team's other possessions predict"), each with an interval and a sample size. A static web app sits on top: a
 scorecard, team tendency reports, a hot-hand report, and a possession-by-possession replay.
@@ -28,9 +28,15 @@ the first two seasons. Log-loss, lower is better; intervals are 95% from a boots
 | How it ends | 2025-26, 1,230 games | 244,406 | 0.7078 | 0.7194 | -0.0117 (-0.0124 to -0.0110) | 75.9% vs 75.6% |
 | Where the shot comes from | late 2024-25, 492 games | 74,571 | 1.4782 | 1.5010 | -0.0228 (-0.0246 to -0.0211) | 34.6% vs 31.6% |
 | Where the shot comes from | 2025-26, 1,230 games | 184,811 | 1.4801 | 1.4999 | -0.0197 (-0.0208 to -0.0187) | 34.9% vs 32.4% |
+| What kind of shot it is | late 2024-25, 492 games | 74,571 | 1.9838 | 1.9977 | -0.0139 (-0.0151 to -0.0128) | 29.6% vs 29.2% |
+| What kind of shot it is | 2025-26, 1,230 games | 184,811 | 1.9744 | 1.9878 | -0.0133 (-0.0141 to -0.0126) | 29.9% vs 29.7% |
+| How early the first action comes | late 2024-25, 492 games | 94,836 | 0.9180 | 0.9439 | -0.0259 (-0.0276 to -0.0242) | 52.5% vs 50.8% |
+| How early the first action comes | 2025-26, 1,230 games | 238,739 | 0.9221 | 0.9449 | -0.0228 (-0.0239 to -0.0217) | 52.2% vs 50.5% |
 
-The baselines: usage shares among the five on the floor (finisher), and the offense's season-to-date shares
-shrunk toward the league's (ending type, shot location), all from games that tipped off earlier. The models are
+The baselines: usage shares among the five on the floor (finisher); the offense's season-to-date shares shrunk
+toward the league's (ending type, shot location); the style mix of the five on the floor, shifted by how the
+possession started (shot style, ten classes); and the offense's early / middle / late mix on possessions that
+started the same way (tempo). All from games that tipped off earlier. The models are
 gradient-boosted trees that start from the baseline's odds and learn corrections from clock, score, fouls,
 timeouts, lineup and what has happened so far in the game.
 
@@ -42,6 +48,32 @@ the checking: possession segmentation that reconciles to the final score in 3,69
 unexplained changes of possession in 738,812, leakage tests, baselines for every head, and intervals on every
 number.
 
+## What the feed lets us label
+
+The last two rows of the table rest on labels added in step 2.2. Each is an outcome of the possession and is
+defined on only part of them (738,812 possessions, three seasons):
+
+| Label | Read from | Defined when | Share of possessions |
+|---|---|---|---|
+| Shot style (ten styles) | shot `descriptor` and `subType` | it ends in a shot that is not a heave | 75.4% |
+| Assisted, and by whom | the assist on the basket | it ends in a made basket | 41.8% |
+| Seconds to the first action | period clock | it has a shot, turnover or trip to the line | 99.0% |
+| Tempo: early, middle, late | the same clocks | at least 24 s were left at the start | 96.4% |
+| Fast break | the scorer's tag | it ends in a shot or at the line | 84.6% |
+| Two-for-one taken | period clock | it starts with 30 to 45 s left in the period | 2.4% |
+
+- **A style is the scorer's word for the shot** ("driving", "pullup", "cutting"), not the play that was called.
+  32% of shots carry no word at all; a jump shot with none is 94% threes and 97% assisted when it goes in.
+- **The first style baseline was too easy and was replaced.** Against the lineup's style mix alone the model
+  won by 0.086. A baseline that also knows how the possession started took 85% of that away. The table shows
+  the lift over the tougher one.
+- **Tempo may only see what was known when the possession began.** Most context here is read just before the
+  deciding event, and for tempo that leaks: a timeout in the middle of a possession says time has passed. A
+  quarter of the first tempo result came from that and was given back.
+- **Two scorer's tags double as a check on the pipeline**: second-chance agrees with its count of offensive
+  rebounds on 99.6% of 368,467 tagged possessions, from-turnover with how the possession started on 99.99%.
+- **The two new predictions are not in the pregame log.** They are scored looking back only.
+
 ## Team-report tendencies, checked
 
 A tendency is a deviation from a baseline in a defined situation. The layer (`tendency/tendency_layer.py`) is a
@@ -52,34 +84,37 @@ really differ. Rows are ranked by the probability that the deviation is larger t
 
 The check that decided whether it replaced the earlier stand-in: fit on the first half of 2025-26 (615 games),
 predict the second half (615 games), against raw first-half rates and the stand-in. Every method is scored on the
-same cells (one team or player, one situation, one outcome, at least 25 trials in each half).
+same cells (one team or player, one situation, one outcome, at least 25 trials in each half). The table was
+recomputed after step 2.2 added shot style, creation, tempo and fast-break rows, which tripled the team cells.
 
 | Cells | Method | Log-loss | Against the stand-in (95% interval) | 90% intervals held, as fitted | With the drift term | Interval width |
 |---|---|---|---|---|---|---|
-| Team, 1,920 | Raw rate | 0.45643 | +0.000302 (+0.000265 to +0.000338) | 81.7% | 91.3% | 10.0 pts |
-| Team, 1,920 | Stand-in | 0.45613 | reference | 79.1% | 91.3% | 8.6 pts |
-| Team, 1,920 | Hierarchical | 0.45614 | +0.000008 (-0.000002 to +0.000018) | 79.8% | 91.7% | 8.7 pts |
-| Team, 1,920 | Hierarchical, PyMC | 0.45612 | -0.000005 (-0.000013 to +0.000003) | 80.2% | 91.6% | 8.7 pts |
-| Player, 2,470 | Raw rate | 0.49613 | +0.000694 (+0.000616 to +0.000764) | 85.7% | 89.2% | 14.6 pts |
-| Player, 2,470 | Stand-in | 0.49541 | reference | 85.4% | 89.7% | 13.6 pts |
-| Player, 2,470 | Hierarchical | 0.49470 | -0.000734 (-0.000830 to -0.000645) | 86.1% | 90.0% | 13.0 pts |
-| Player, 2,470 | Hierarchical, PyMC | 0.49484 | -0.000597 (-0.000681 to -0.000517) | 85.2% | 89.4% | 12.9 pts |
+| Team, 5,815 | Raw rate | 0.39714 | +0.000328 (+0.000299 to +0.000357) | 81.7% | 90.5% | 10.2 pts |
+| Team, 5,815 | Stand-in | 0.39682 | reference | 78.6% | 90.0% | 8.6 pts |
+| Team, 5,815 | Hierarchical | 0.39682 | +0.000003 (-0.000003 to +0.000009) | 79.8% | 90.0% | 8.8 pts |
+| Team, 5,815 | Hierarchical, PyMC | 0.39681 | -0.000005 (-0.000011 to +0.000000) | 80.1% | 90.3% | 8.7 pts |
+| Player, 2,644 | Raw rate | 0.49630 | +0.000791 (+0.000714 to +0.000865) | 85.9% | 89.3% | 15.4 pts |
+| Player, 2,644 | Stand-in | 0.49549 | reference | 86.0% | 90.1% | 14.3 pts |
+| Player, 2,644 | Hierarchical | 0.49477 | -0.000740 (-0.000837 to -0.000650) | 85.8% | 89.8% | 13.6 pts |
+| Player, 2,644 | Hierarchical, PyMC | 0.49491 | -0.000602 (-0.000687 to -0.000523) | 85.5% | 89.4% | 13.5 pts |
 
 Log-loss, the difference and the width are with the drift term; the stand-in reference is as it was exported.
-2,006,572 team trials and 729,776 player trials in the second half; the interval resamples whole games.
+5,174,871 team trials and 737,144 player trials in the second half; the interval resamples whole games.
 
 - **On team rows the new model does not beat the stand-in.** It is level, on 2025-26 and on 2024-25. On player
   rows it does, in both seasons, because it accounts for who else is on the floor. It replaced the stand-in on
   that, on coverage of the rows a report shows, and on fixing what the stand-in got wrong by construction.
 - **90% intervals held about 80% until drift was modeled.** Splitting the same season by alternating games
-  (no time between halves) gives 88.6% and 91.6%, so the shortfall is teams and players changing. How much they
+  (no time between halves) gives 89.6% and 91.5%, so the shortfall is teams and players changing. How much they
   change is measured on the season before (a spread of about 0.1 on the logit scale, roughly 2 percentage points
   at a 25% rate) and added to every interval. It does nothing for log-loss.
-- **The rows a report shows are the hard case**, because picking ten of 130 favours the lucky ones. For the ten
-  each team would have been shown from the first half, 90% intervals held 71.2% under the stand-in and 90.5%
-  under the new model with drift (285 rows; 87.9% on 2024-25).
-- **A full Bayesian fit was tried and not used.** The same model in PyMC (NUTS, 28 seconds on an M3 Max) is no
-  better than the half-second fit, so it stays an optional extra: `pip install -e ".[bayes]"`.
+- **The rows a report shows are the hard case**, because picking ten of a few hundred favours the lucky ones.
+  For the ten each team would have been shown from the first half, 90% intervals held 61.9% under the stand-in
+  and 87.0% under the new model with drift (293 rows; 87.7% on 2024-25). That is short of 90%, and it was 90.5%
+  before step 2.2 doubled the rows to pick from: more candidates, more selection, and nothing corrects for it yet.
+- **A full Bayesian fit was tried and not used.** The same model in PyMC (NUTS, 70 seconds on an M3 Max) is a
+  hair better on team rows and worse on player rows than the one-second fit, so it stays an optional extra:
+  `pip install -e ".[bayes]"`.
 
 ## Hot hand
 
@@ -253,7 +288,7 @@ app/                  static front end (no build step); app/data is the bundled 
 
 ## The app
 
-Five views: Method (what it does and its limits), Team report, Replay with "guess before the model", Scorecard
+Five views: Method (what it does, what the feed can label, and its limits), Team report, Replay with "guess before the model", Scorecard
 (which also carries the tendency layer's half-season check), and Hot hand.
 It is a plain static site: host the `app/` folder anywhere (GitHub Pages works). Served over HTTPS it installs
 to a phone home screen and works offline after the first load.
