@@ -72,14 +72,22 @@ def make_league(rng: np.random.Generator) -> list[dict]:
     return league
 
 
-def drift(league: list[dict], rng: np.random.Generator) -> list[dict]:
-    """Next-season version of the league: same players, slightly different habits."""
+def drift(league: list[dict], rng: np.random.Generator, team_sd: float = 0.0) -> list[dict]:
+    """A later version of the league: same players, slightly different habits.
+
+    Between seasons each player changes on his own. At mid-season (`team_sd` > 0) a whole team also
+    shifts together, as after a trade or a new rotation, so the tendency layer's drift term has
+    something real to measure in the sample.
+    """
     out = []
     for t in league:
         t2 = {**t, "players": []}
+        team_shot = rng.lognormal(0, team_sd, 5) if team_sd else np.ones(5)
+        team_end = rng.lognormal(0, team_sd, 3) if team_sd else np.ones(3)
         for p in t["players"]:
-            sm = p["shot_mix"] * rng.lognormal(0, 0.12, 5)
-            t2["players"].append({**p, "usage": p["usage"] * rng.lognormal(0, 0.15), "shot_mix": sm / sm.sum()})
+            sm = p["shot_mix"] * rng.lognormal(0, 0.12, 5) * team_shot
+            em = p["end_mix"] * team_end
+            t2["players"].append({**p, "usage": p["usage"] * rng.lognormal(0, 0.15), "shot_mix": sm / sm.sum(), "end_mix": em / em.sum()})
         out.append(t2)
     return out
 
@@ -409,6 +417,8 @@ def write_synthetic_raw(root: Path, seed: int = 7) -> list[str]:
         day = datetime(season, 10, 22, tzinfo=timezone.utc)
         n = 0
         for c in range(cycles):
+            if c == cycles // 2:
+                league = drift(league, rng, team_sd=0.2)     # a mid-season shift for the tendency layer's drift term to measure
             for rnd in _round_robin(len(TEAMS)):
                 for slot, (a, b) in enumerate(rnd):
                     h, w = (a, b) if (c + slot) % 2 == 0 else (b, a)

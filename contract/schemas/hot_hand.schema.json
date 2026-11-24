@@ -1,0 +1,224 @@
+{
+  "$id": "hot_hand.schema.json",
+  "title": "The hot-hand report: after a player's make or miss, how often he finishes his team's next possession against his lineup-adjusted expectation, and what the possession scores",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "data_kind",
+    "available",
+    "reason",
+    "interval_level",
+    "bootstrap",
+    "definition",
+    "seasons",
+    "n_games",
+    "after",
+    "make_minus_miss",
+    "verdict"
+  ],
+  "properties": {
+    "data_kind": {
+      "enum": [
+        "synthetic",
+        "real"
+      ]
+    },
+    "available": {
+      "type": "boolean"
+    },
+    "reason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "interval_level": {
+      "type": "number",
+      "minimum": 0.5,
+      "maximum": 0.999
+    },
+    "bootstrap": {
+      "type": "string"
+    },
+    "definition": {
+      "type": "string"
+    },
+    "seasons": {
+      "type": "array",
+      "items": {
+        "type": "integer"
+      }
+    },
+    "n_games": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "after": {
+      "type": "array",
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "prior",
+          "n",
+          "share",
+          "expected_share",
+          "share_vs_expected",
+          "points",
+          "points_vs_team"
+        ],
+        "properties": {
+          "prior": {
+            "enum": [
+              "make",
+              "miss"
+            ]
+          },
+          "n": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "share": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "expected_share": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "share_vs_expected": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "value",
+              "interval"
+            ],
+            "properties": {
+              "value": {
+                "type": "number"
+              },
+              "interval": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 2,
+                "maxItems": 2
+              }
+            }
+          },
+          "points": {
+            "type": "number",
+            "minimum": 0
+          },
+          "points_vs_team": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "value",
+              "interval"
+            ],
+            "properties": {
+              "value": {
+                "type": "number"
+              },
+              "interval": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 2,
+                "maxItems": 2
+              }
+            }
+          }
+        }
+      }
+    },
+    "make_minus_miss": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "share",
+        "points"
+      ],
+      "properties": {
+        "share": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value",
+            "interval"
+          ],
+          "properties": {
+            "value": {
+              "type": "number"
+            },
+            "interval": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            }
+          }
+        },
+        "points": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value",
+            "interval"
+          ],
+          "properties": {
+            "value": {
+              "type": "number"
+            },
+            "interval": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            }
+          }
+        }
+      }
+    },
+    "verdict": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "share",
+        "points"
+      ],
+      "properties": {
+        "share": {
+          "enum": [
+            "rises",
+            "falls",
+            "no_clear_difference"
+          ]
+        },
+        "points": {
+          "enum": [
+            "more",
+            "fewer",
+            "no_clear_difference"
+          ]
+        }
+      }
+    }
+  }
+}

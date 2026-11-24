@@ -72,10 +72,10 @@ def test_reliability_bins_cover_every_probability():
 
 
 # ---- tendencies -----------------------------------------------------------------------
-def test_tendencies_have_intervals_sample_sizes_and_are_ranked_by_bound(synth_run):
-    out = synth_run["out"]
-    for f in (out / "team_reports").glob("*.json"):
-        rep = json.loads(f.read_text())
+def test_stand_in_rows_have_intervals_sample_sizes_and_are_ranked_by_bound(synth_run):
+    """The old stand-in is no longer exported, but the tendency validation still scores against it."""
+    from tendency.tendencies import team_reports
+    for rep in team_reports(synth_run["poss"][synth_run["poss"]["season"] == 2091], {}).values():
         assert rep["method"]["final"] is False and 0 < len(rep["tendencies"]) <= 10
         scores = [t["rank_score"] for t in rep["tendencies"]]
         assert scores == sorted(scores, reverse=True)

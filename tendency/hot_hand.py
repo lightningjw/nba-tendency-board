@@ -11,8 +11,8 @@ his make" or "after his miss". Two outcomes on it:
   season), so a star who makes and takes a lot of shots is not counted as hot for being a star.
 * **Points.** Points the team scored on the possession, minus that team's season average.
 
-A player who has just shot is in the flow of the offense whether or not the shot went in, so both
-groups sit above expectation. The make-minus-miss difference is the hot-hand number.
+Both groups are players who took their team's last shot, so the make-minus-miss difference removes
+whatever is true of recent shooters in general. That difference is the hot-hand number.
 
 Intervals: a bootstrap over whole games, like the scorecard. A null result is a result.
 

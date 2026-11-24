@@ -41,7 +41,7 @@ from .possessions import ENDING_CLASSES, SHOT_FAMILIES
 from .tendencies import END_LABEL, FAM_LABEL, SITUATIONS, situation_masks
 
 METHOD = {"id": "eb_hierarchical_logit", "label": "Partial pooling across teams, situations and players (empirical Bayes, hierarchical logit)",
-          "final": True}                 # final because the half-season validation supports it; see DECISIONS.md 86-100
+          "final": True}                 # final because the half-season validation supports it; see DECISIONS.md 86-87
 INTERVAL_LEVEL = 0.90
 THRESHOLD = 0.01                 # a deviation smaller than one percentage point is not worth a scout's time
 MIN_N = 25
