@@ -155,7 +155,7 @@ choice made along the way), `NEXT.md`.
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 
-pytest                                  # about a minute
+pytest                                  # about 90 s
 python -m tendency sample               # synthetic games -> app/data (no network)
 python -m http.server 8000 -d app       # open http://localhost:8000
 ```
