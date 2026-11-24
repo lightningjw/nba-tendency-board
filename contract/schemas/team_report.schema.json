@@ -150,7 +150,9 @@
             "enum": [
               "league_same_situation",
               "team_overall_plus_league_shift",
-              "player_overall"
+              "player_overall",
+              "team_elsewhere_plus_league_shift",
+              "player_lineup_adjusted"
             ]
           },
           "baseline_rate": {
@@ -198,6 +200,11 @@
           },
           "excludes_zero": {
             "type": "boolean"
+          },
+          "prob_beyond": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
           }
         }
       }
@@ -205,6 +212,14 @@
     "n_candidates": {
       "type": "integer",
       "minimum": 0
+    },
+    "threshold": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "drift_included": {
+      "type": "boolean"
     }
   }
 }

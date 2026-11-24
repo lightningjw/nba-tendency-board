@@ -13,12 +13,19 @@ from . import CONTRACT_VERSION
 from .contract import SCHEMA_DIR, validate, validate_export_dir
 from .models import INTERVAL_LEVEL, ModelRun
 from .possessions import ENDING_CLASSES, SHOT_FAMILIES
+from . import tendency_validation
+from .hot_hand import hot_hand_report
 from .prospective import scorecard_block
-from .tendencies import INTERVAL_LEVEL as TENDENCY_LEVEL
-from .tendencies import METHOD, team_reports
+from .tendency_layer import INTERVAL_LEVEL as TENDENCY_LEVEL
+from .tendency_layer import METHOD, THRESHOLD, estimate_drift, team_reports
 
 NOT_BUILT = ["transformer predictor", "coach-decision heads", "live mode", "ask box", "LLM-written summaries",
-             "defense proxies", "partial-pooling tendency layer"]
+             "defense proxies"]
+TENDENCY_NOTE = ("Deviations are estimated on the logit scale with partial pooling: a team's rate against the league, its rate in a situation "
+                 "against its other possessions, a player's share against what his usage and the four teammates on the floor predict. "
+                 "Intervals include the baseline's own uncertainty and how much tendencies moved between the halves of an earlier season. "
+                 "Rows are ranked by the probability that the deviation is larger than one percentage point. "
+                 "Checked by fitting on the first half of a season and predicting the second; the table is on the scorecard.")
 SYNTHETIC_NOTICE = ("SYNTHETIC SAMPLE DATA. Teams, players, games and every number shown are invented by a simulator "
                     "to exercise the pipeline and the app. Nothing here is an NBA result.")
 REAL_NOTICE = "Built from public NBA play-by-play. Predictions are shown only for games the models never trained on."
@@ -72,13 +79,24 @@ def export_all(out: Path, poss: pd.DataFrame, games: list[dict], run: ModelRun, 
     # ---- team reports ----------------------------------------------------------------
     as_of = _iso(poss["tipoff"].max())
     latest = int(poss["season"].max())                       # a scouting report describes the current season's team
-    reports = team_reports(poss[poss["season"] == latest], names)
+    earlier = [int(s) for s in poss["season"].unique() if s < latest]
+    drift = estimate_drift(poss[poss["season"] == max(earlier)]) if earlier else None     # never measured on the season being reported
+    reports = team_reports(poss[poss["season"] == latest], names, drift=drift)
     for t in teams_doc["teams"]:
         rep = reports.get(t["team_id"]) or {"team_id": t["team_id"], "n_games": 0, "n_possessions": 0, "n_candidates": 0, "method": METHOD,
-                                            "interval_level": TENDENCY_LEVEL, "sort": "rank_score_desc", "tendencies": []}
+                                            "interval_level": TENDENCY_LEVEL, "threshold": THRESHOLD, "drift_included": False,
+                                            "sort": "rank_score_desc", "tendencies": []}
         rep = {"team_id": rep["team_id"], "data_kind": kind, "as_of_utc": as_of, **{k: v for k, v in rep.items() if k != "team_id"}}
         validate(rep, "team_report", f"team report {t['team_id']}")
         _dump(out / "team_reports" / f"{t['team_id']}.json", rep)
+
+    # ---- tendency validation and the hot-hand report -------------------------------------
+    val = {"data_kind": kind, **tendency_validation.report(poss)}
+    validate(val, "tendency_validation")
+    _dump(out / "tendency_validation.json", val)
+    hot = {"data_kind": kind, **hot_hand_report(poss)}
+    validate(hot, "hot_hand")
+    _dump(out / "hot_hand.json", hot)
 
     # ---- scorecard -------------------------------------------------------------------
     scorecard = {"data_kind": kind, "generated_at": now, "interval_level": INTERVAL_LEVEL,
@@ -161,13 +179,13 @@ def export_all(out: Path, poss: pd.DataFrame, games: list[dict], run: ModelRun, 
         "splits": {"rule": "By game and by season, never by possession. Last season held out whole; latest 20% of earlier games held out; "
                            "models train on the rest (latest 15% of it only picks the tree count).",
                    "train": split_info("train"), "holdout_games": split_info("holdout_games"), "holdout_season": split_info("holdout_season")},
-        "tendency_method": {**METHOD, "interval_level": TENDENCY_LEVEL,
-                            "note": "Stand-in until the partial-pooling tendency layer is fitted. Intervals treat the baseline as fixed and are not adjusted for picking the top rows."},
+        "tendency_method": {**METHOD, "interval_level": TENDENCY_LEVEL, "note": TENDENCY_NOTE},
         "quality": {"n_possessions": int(len(poss)), "lineup_ok_rate": round(float(poss["lineup_ok"].mean()), 4),
                     "n_anomalous_possessions": int((poss["ending_type"] == "unknown").sum()), "n_heaves": int(poss["is_heave"].sum()),
                     "n_period_end": int((poss["ending_type"] == "period_end").sum())},
         "field_names_verified": bool(fields_verified), "not_built": NOT_BUILT,
         "files": {"teams": "teams.json", "games": "games.json", "scorecard": "scorecard.json",
+                  "tendency_validation": "tendency_validation.json", "hot_hand": "hot_hand.json",
                   "team_reports_dir": "team_reports", "replays_dir": "replays", "schemas_dir": "schemas"},
     }
     validate(manifest, "manifest")
@@ -176,4 +194,10 @@ def export_all(out: Path, poss: pd.DataFrame, games: list[dict], run: ModelRun, 
     pro = scorecard["prospective"]
     log(f"export: wrote and validated {sum(counts.values())} contract files in {out} ({kind}); prospective log: "
         + (f"{pro['n_games']} games on {pro['n_dates']} dates ({pro['mode']})" if pro["available"] else "empty"))
+    for s in val["slices"]:
+        h = next(m for m in s["methods"] if m["method"] == "hierarchical")
+        d = h["with_drift"] or h
+        log(f"tendency validation, season {val['season']}, {s['scope']} cells ({s['n_cells']:,}): hierarchical {h['verdict']} vs the stand-in "
+            f"(log-loss {d['vs_stand_in']['diff']:+.6f}, {d['vs_stand_in']['interval'][0]:+.6f} to {d['vs_stand_in']['interval'][1]:+.6f}); "
+            f"90% coverage {h['coverage']:.3f} as is" + (f", {d['coverage']:.3f} with drift" if h["with_drift"] else ""))
     return counts

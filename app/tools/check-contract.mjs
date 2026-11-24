@@ -20,6 +20,7 @@ check("manifest.json", "manifest");
 check(m.files.teams, "teams");
 check(m.files.games, "games");
 check(m.files.scorecard, "scorecard");
+for (const name of ["tendency_validation", "hot_hand"]) if (m.files[name]) check(m.files[name], name);   // contract 1.2, optional
 for (const f of readdirSync(join(dir, m.files.team_reports_dir))) check(`${m.files.team_reports_dir}/${f}`, "team_report");
 for (const f of readdirSync(join(dir, m.files.replays_dir))) check(`${m.files.replays_dir}/${f}`, "replay");
 

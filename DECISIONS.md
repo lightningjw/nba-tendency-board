@@ -235,3 +235,115 @@ published before the game": score, fouls and the five on the floor do not exist 
 85. **The model frozen before this fix stays frozen.** `through-2026-11-20` has pregame files naming it; it is
     not retrained. Its 2026-27 training rows had this defect (well under 0.1% of its training possessions).
     Scoring uses the corrected rows, so `score` will report a small baseline drift for logs written before the fix.
+
+## Step 2.1, the partial-pooling tendency layer (2026-11-23)
+
+All numbers below: 2025-26 split in half by date (615 games to fit, 615 to predict), with 2024-25 (drift from
+2023-24) as the second check in brackets. Log-loss differences are against the stand-in, with a 95% interval
+from 1,000 resamples of whole second-half games.
+
+### What ships, and why
+86. **The empirical-Bayes hierarchical logit ships and `method.final` is true.** The roadmap's rule is "the simplest
+    method that wins out of sample". On team cells it does not win: log-loss 0.45614 against the stand-in's
+    0.45613, difference +0.000008 (-0.000002 to +0.000018), level [2024-25: -0.000004, level]. On player cells it
+    wins: 0.49470 against 0.49541, difference -0.000734 (-0.000830 to -0.000645) [2024-25: -0.000518
+    (-0.000605 to -0.000429)]. It ships on the second clause of the rule: level or better on log-loss everywhere,
+    better coverage where it counts (the rows a report shows, decision 91), and each stated weakness of the
+    stand-in fixed (decisions 88 to 91).
+87. **`final` is a constant in the code, decided on real seasons, not recomputed per export.** The bundled
+    sample is simulated; a flag that flipped with a simulator seed would mean nothing. What is recomputed on
+    every export is the validation table itself, verdicts included, and the app shows it.
+88. **Teammates: player rows are measured against a lineup-adjusted expectation.** Strengths w are fitted so
+    that P(i finishes) = w_i / (sum over the five on the floor), on the team's possessions outside the
+    situation, then averaged over the lineups he played with inside it. This is where the out-of-sample gain
+    is. A test builds a star who closes games with a weak bench: the stand-in reports +9.5 points, the layer +0.6.
+89. **Baseline uncertainty: a situational row compares the situation with the team's OTHER possessions**, not
+    all of them, so the two sides are independent and the baseline's variance adds to the deviation's exactly.
+90. **Prior strength is estimated, never fixed.** Each group (one situation and outcome across teams; one
+    situation across all players) has its own between-unit variance by marginal maximum likelihood.
+91. **Selection: rows are ranked by the posterior probability that the deviation exceeds one percentage point
+    in its own direction**, and the app prints, from those probabilities, how many of the ten shown are expected
+    not to. Checked directly: for the top ten rows each method would have shown from the first half, 90%
+    intervals held 71.2% for the stand-in and 77.9% for the layer as fitted, 90.5% for the layer with the drift
+    term (285 rows) [2024-25: 71.7%, 75.7%, 87.9%; 280 rows]. One point is a judgment call, not a fitted number.
+
+### Two bugs in the WIP, both of which changed the first result
+92. **Player cells were missing because their keys were NaN.** Under pandas 3 a `None` outcome class in a string
+    column becomes NaN, and a string joined to NaN is NaN. Keys are now built by one function (`cell_key`) for
+    every method; `test_every_method_is_scored_on_the_same_cells_players_included` fails if a method lacks a cell.
+93. **The WIP predicted a cell's rate as baseline plus shrunk deviation, which treats an uncertain baseline as
+    exact.** That is the right posterior for the deviation (what the report shows) and the wrong one for the
+    rate (what the validation scores). The rate now weighs the cell's own count against "baseline plus a typical
+    deviation" by precision. `estimate()` returns both and its docstring says which is which.
+
+### Coverage and the drift term
+94. **Why 90% intervals covered about 80%: teams and players change, and nothing modeled it.** Evidence: split
+    the same season by alternating games, so no time passes between the halves, and raw-rate intervals hold
+    88.6% of team cells and 91.6% of player cells [88.0%, 90.8%]. Split by date and they hold 81.7% and 85.7%.
+    The last point or two on team cells is possessions in one game not being independent.
+95. **Drift is measured on an earlier season and added as variance on the logit scale.** For rates, per scope:
+    sd 0.108 for team cells and 0.101 for player cells from 2024-25 (about 2 percentage points at a 25% rate);
+    0.090 and 0.124 from 2023-24; 0.095 and 0.124 from 2025-26. It is the variance of the half-to-half change
+    that binomial sampling does not explain, by maximum likelihood, around zero.
+    Result on 2025-26: coverage 79.8% to 91.7% on team cells and 86.1% to 90.0% on player cells, log-loss
+    0.45613 to 0.45614 and 0.49471 to 0.49470. It does not hurt log-loss and does not help it: it moves the
+    predicted rate by the width of a rounding error and only widens the interval. [2024-25: 79.2% to 88.8%,
+    86.4% to 93.0%.] The same term fixes the raw and stand-in intervals as well (91.3% and 91.3% on team
+    cells); calibration on all cells is not what separates the methods.
+96. **For the deviation a report row shows, drift is measured per kind of row, not per scope.** I was asked for
+    per scope and measured both. A team's overall rates drift (sd 0.099 against the league) and its situational
+    rates drift with them, so the situational DEVIATION barely moves (0.051 in 2024-25, zero in the other two
+    seasons); the player deviation's drift is 0.000 to 0.075 depending on the season. One number per scope
+    would widen 1,680 situational rows to cover for 240 main-effect rows. With per-kind drift the displayed
+    intervals held 89.2% (team, all possessions), 91.0% (team, in a situation) and 90.5% (player) of
+    second-half deviations [86.3%, 88.6%, 93.3%].
+97. **A report's intervals include drift, so they describe the games to come, and the app says so.** Drift for
+    a report comes from the season before the one reported, never from itself. With no earlier season there is
+    no drift term and the row says that instead.
+98. **Not done: a mean-reverting version** (shrink harder because the thing being estimated will move). It is
+    the obvious way the drift could buy log-loss on team rows. I stopped at the term that was asked for.
+
+### PyMC
+99. **`pymc` is an optional extra (`pip install -e ".[bayes]"`), one line of justification: it is the only way
+    to ask whether a full Bayesian fit predicts better than the plug-in one.** Nothing in the pipeline, the
+    tests' required path or CI imports it; the one test that uses it is skipped without it.
+100. **It was run and it does not ship.** Same model with exact binomial likelihoods for the cell and for the
+     baseline's raw material, variance components pooled across the 56 situation-outcome groups, each team
+     with its own scale for player deviations, lineup adjustment as an offset. NUTS, 4 chains, 1,000 tuning and
+     1,000 kept draws, 9,512 parameters: 28 seconds on an Apple M3 Max (14 cores, 36 GB), 4 cores used, PyMC
+     6.4.0. Largest r-hat 1.012, 2 divergences in 4,000 draws. Team cells: -0.000005 (-0.000013 to +0.000003),
+     level. Player cells: -0.000597 (-0.000681 to -0.000517), ahead of the stand-in but behind the
+     empirical-Bayes fit's -0.000734. Coverage with drift 91.6% and 89.4%. [2024-25: -0.000011 and -0.000472.]
+     A sampler and a dependency for no gain, so the half-second fit ships. ADVI was not needed and not run.
+
+### Hot hand
+101. **Its own contract file and its own view, league-wide, all seasons on disk.** A row is a possession whose
+     previous trip by the same team, in the same period, ended in a field-goal attempt by a player still on the
+     floor. Expected share is the same lineup-adjusted strength the layer uses, fitted per team and season.
+     Points are compared with that team's season average.
+102. **The make-minus-miss difference is the reported number, not make against zero.** On 3,931 games: after his
+     make he finishes the next possession 22.8% against 21.8% expected (+0.9 points, 0.8 to 1.1; 306,381
+     possessions); after his miss 18.1% against 21.8% (-3.8, -3.9 to -3.6; 235,411). Difference +4.7 points
+     (4.5 to 5.0). Points on that possession: +0.001 per possession (-0.005 to +0.007), no clear difference.
+     A placebo I ran but did not export: the gap shrinks with distance (4.4, 2.8 and 1.6 points one, two and
+     three trips later in 2025-26), which is what a short-lived effect looks like and not what a fixed
+     matchup advantage would. It is still an association; the app says what it cannot separate.
+103. **Nothing here implies a play call.** The report says "finishes the next possession more often" and states
+     that play-by-play does not record who a play was run for.
+
+### Contract, app, sample
+104. **Contract 1.2.** Two new files, both optional and listed in `manifest.files` only when present:
+     `tendency_validation.json` and `hot_hand.json`. Team reports gain optional `threshold`, `drift_included`
+     and per-row `prob_beyond`, and two baseline kinds. Schemas stay inside the supported keyword subset. A 1.0
+     or 1.1 export validates and renders: checked by serving the 1.1 export on `main` under the new app.
+105. **The validation table goes on the scorecard; the team report links to it** and quotes the one number that
+     is about the rows it shows.
+106. **Which season is validated: the latest complete one** (at least 80% as many games as the fullest season
+     on disk), with drift from the season before it. So a season in progress is never split in half.
+107. **The simulator now shifts each team's habits at mid-season**, so the sample has drift to measure and
+     exercises the "includes drift" wording. Every number in `app/data` changed; they were invented before too.
+108. **`tendencies.py` stays** as the reference the validation scores against. It is no longer exported.
+109. **Known soft spots, left as they are.** The player baseline's variance is his own count elsewhere; when
+     lineups barely overlap that is too small (a hand-built world showed it; real seasons did not). A group whose
+     estimated spread is zero gets intervals a fraction of a point wide; those rows rank last and are never
+     shown. Drift is a half-season number applied to reports of any age.

@@ -4,8 +4,10 @@
 
 Tendency Board predicts three things about the next NBA possession from public play-by-play: who finishes it,
 how it ends, and where the shot comes from. Each prediction is scored against a simple baseline on games the
-model never saw, and the result is shown with its uncertainty whether it flatters the model or not. A static web
-app sits on top: a scorecard, team tendency reports, and a possession-by-possession replay.
+model never saw, and the result is shown with its uncertainty whether it flatters the model or not. A tendency
+layer turns the same possessions into scouting-style deviations ("more corner threes after timeouts than this
+team's other possessions predict"), each with an interval and a sample size. A static web app sits on top: a
+scorecard, team tendency reports, a hot-hand report, and a possession-by-possession replay.
 
 **Live app:** https://nba-tendency-board-app.vercel.app/ (simulated games with placeholder teams; real results
 are in the table below, and [docs/terms-check.md](docs/terms-check.md) explains why real play-by-play is not
@@ -40,14 +42,62 @@ the checking: possession segmentation that reconciles to the final score in 3,69
 unexplained changes of possession in 738,812, leakage tests, baselines for every head, and intervals on every
 number.
 
+## Team-report tendencies, checked
+
+A tendency is a deviation from a baseline in a defined situation. The layer (`tendency/tendency_layer.py`) is a
+hierarchical logit fitted by empirical Bayes: a team's rate against the league; its rate in a situation against
+its own other possessions; a player's share of finishes against what his usage and the four teammates on the
+floor predict. Small samples shrink toward the baseline by an amount estimated from how much teams and players
+really differ. Rows are ranked by the probability that the deviation is larger than one percentage point.
+
+The check that decided whether it replaced the earlier stand-in: fit on the first half of 2025-26 (615 games),
+predict the second half (615 games), against raw first-half rates and the stand-in. Every method is scored on the
+same cells (one team or player, one situation, one outcome, at least 25 trials in each half).
+
+| Cells | Method | Log-loss | Against the stand-in (95% interval) | 90% intervals held, as fitted | With the drift term | Interval width |
+|---|---|---|---|---|---|---|
+| Team, 1,920 | Raw rate | 0.45643 | +0.000302 (+0.000265 to +0.000338) | 81.7% | 91.3% | 10.0 pts |
+| Team, 1,920 | Stand-in | 0.45613 | reference | 79.1% | 91.3% | 8.6 pts |
+| Team, 1,920 | Hierarchical | 0.45614 | +0.000008 (-0.000002 to +0.000018) | 79.8% | 91.7% | 8.7 pts |
+| Team, 1,920 | Hierarchical, PyMC | 0.45612 | -0.000005 (-0.000013 to +0.000003) | 80.2% | 91.6% | 8.7 pts |
+| Player, 2,470 | Raw rate | 0.49613 | +0.000694 (+0.000616 to +0.000764) | 85.7% | 89.2% | 14.6 pts |
+| Player, 2,470 | Stand-in | 0.49541 | reference | 85.4% | 89.7% | 13.6 pts |
+| Player, 2,470 | Hierarchical | 0.49470 | -0.000734 (-0.000830 to -0.000645) | 86.1% | 90.0% | 13.0 pts |
+| Player, 2,470 | Hierarchical, PyMC | 0.49484 | -0.000597 (-0.000681 to -0.000517) | 85.2% | 89.4% | 12.9 pts |
+
+Log-loss, the difference and the width are with the drift term; the stand-in reference is as it was exported.
+2,006,572 team trials and 729,776 player trials in the second half; the interval resamples whole games.
+
+- **On team rows the new model does not beat the stand-in.** It is level, on 2025-26 and on 2024-25. On player
+  rows it does, in both seasons, because it accounts for who else is on the floor. It replaced the stand-in on
+  that, on coverage of the rows a report shows, and on fixing what the stand-in got wrong by construction.
+- **90% intervals held about 80% until drift was modeled.** Splitting the same season by alternating games
+  (no time between halves) gives 88.6% and 91.6%, so the shortfall is teams and players changing. How much they
+  change is measured on the season before (a spread of about 0.1 on the logit scale, roughly 2 percentage points
+  at a 25% rate) and added to every interval. It does nothing for log-loss.
+- **The rows a report shows are the hard case**, because picking ten of 130 favours the lucky ones. For the ten
+  each team would have been shown from the first half, 90% intervals held 71.2% under the stand-in and 90.5%
+  under the new model with drift (285 rows; 87.9% on 2024-25).
+- **A full Bayesian fit was tried and not used.** The same model in PyMC (NUTS, 28 seconds on an M3 Max) is no
+  better than the half-second fit, so it stays an optional extra: `pip install -e ".[bayes]"`.
+
+## Hot hand
+
+Separate from the team reports, league-wide, 3,931 games. After a player's make he finishes his team's next
+possession 22.8% of the time against 21.8% expected from his usage and the lineup; after his miss, 18.1% against
+21.8%. Make minus miss: +4.7 percentage points (95% interval 4.5 to 5.0; 541,792 possessions). The possession
+itself scores no differently: +0.001 points (-0.005 to +0.007). So the ball finds the player who just scored and
+there is no sign that it pays, or costs. This is an association: play-by-play cannot tell a team looking for the
+hot player from a player hunting his own shot.
+
 ## Limits
 
 - **Retrospective so far.** The table was computed after the games were played. The stricter test is built
   (`train`, `predict`, `score`: a pregame file names a frozen model by hash, and that model is scored after the
   game) and was rehearsed on 14 dates of 2025-26, but nothing has been logged before a real game yet.
-- **The tendency layer is a stand-in.** Team reports use simple shrinkage and say so on the page. Player rows
-  ignore who else is on the floor, and intervals are not adjusted for picking the top rows. The partial-pooling
-  model is Phase 2.
+- **Tendencies are validated half-season to half-season, on one league.** The drift term is a half-season
+  number applied to a report of any age, and "bigger than one point" is a judgment call. A report 15 games into
+  a season is mostly prior.
 - **The shot-location baseline is weak.** It is the team's shot mix and knows nothing about the lineup, which is
   probably why that head shows the largest lift. A lineup-weighted mix is the tougher baseline and is not built.
 - **No play calls, no defensive coverages.** Play-by-play records what ended a possession, not the set that was
@@ -70,7 +120,7 @@ choice made along the way), `NEXT.md`.
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 
-pytest                                  # about 20 s
+pytest                                  # about a minute
 python -m tendency sample               # synthetic games -> app/data (no network)
 python -m http.server 8000 -d app       # open http://localhost:8000
 ```
@@ -175,7 +225,7 @@ the scorecard starts to mean something.
 ## Layout
 
 ```
-contract/schemas/     the data contract (six JSON Schemas the app reads, plus the pregame log's)
+contract/schemas/     the data contract (eight JSON Schemas the app reads, plus the pregame log's)
 tendency/             pipeline package
   cdn_fields.py       every assumed feed name, URL and rule of thumb
   ingest.py           fetch raw JSON as landed; idempotent; backoff; clear stop on a blocked host
@@ -184,7 +234,11 @@ tendency/             pipeline package
   prospective.py      freeze a model, log before tip-off, score after; the scorecard's prospective block
   features.py         context / pregame / in-game features and the baselines (DuckDB)
   models.py           splits, LightGBM per head, log-loss with game-bootstrap intervals, reliability
-  tendencies.py       simple shrinkage estimate for the team report (labeled as such)
+  tendency_layer.py   the team report: partial pooling across teams, situations and players, with drift
+  tendency_validation.py  fit on half a season, predict the other half, against raw rates and the stand-in
+  tendencies.py       the earlier simple-shrinkage stand-in, kept as the reference the validation scores against
+  tendency_pymc.py    the same model by NUTS; optional extra, used only by the validation
+  hot_hand.py         after a make or a miss: who finishes the next possession, and what it scores
   export.py           writes and validates the contract JSON
   bulk.py             whole seasons from the GitHub mirror; derives the boxscore the archive lacks
   teams.py            the 30 franchises by team id (city, nickname)
@@ -193,13 +247,14 @@ tendency/             pipeline package
   stubs/              named placeholders for everything outside the MVP
 scripts/              fetch_nba_api.py and nightly.sh, for your own machine only
 docs/                 terms check, screenshot, release notes
-tests/                pytest: segmentation edge cases, leakage, ingest, models, contract, prospective log
+tests/                pytest: segmentation edge cases, leakage, ingest, models, contract, prospective log, tendency layer
 app/                  static front end (no build step); app/data is the bundled sample export
 ```
 
 ## The app
 
-Four views: Method (what it does and its limits), Team report, Replay with "guess before the model", Scorecard.
+Five views: Method (what it does and its limits), Team report, Replay with "guess before the model", Scorecard
+(which also carries the tendency layer's half-season check), and Hot hand.
 It is a plain static site: host the `app/` folder anywhere (GitHub Pages works). Served over HTTPS it installs
 to a phone home screen and works offline after the first load.
 
@@ -210,5 +265,6 @@ pipeline sets that from a marker inside the raw files, so synthetic output canno
 
 `python -m tendency sample` simulates 224 games between eight placeholder teams over two fake seasons (2090 and
 2091). A few situational quirks are planted (`QUIRKS` in `tendency/synth.py`) so the team report has ground truth
-to recover; a test checks that it does. Scorecard numbers on this data show that the evaluation code runs. They
+to recover; a test checks that it does. Each team's habits also shift at mid-season, so the tendency layer's
+drift term has something to measure. Scorecard numbers on this data show that the evaluation code runs. They
 say nothing about whether the models beat their baselines on NBA games.

@@ -3,3 +3,6 @@ __pycache__/
 .pytest_cache/
 *.egg-info/
 *.part
+
+# private project notes for local agent sessions (brief, roadmap, prompts); never committed
+docs/private/

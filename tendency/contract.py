@@ -13,7 +13,8 @@ from pathlib import Path
 from jsonschema import Draft202012Validator
 
 SCHEMA_DIR = Path(__file__).resolve().parent.parent / "contract" / "schemas"
-SCHEMAS = ["manifest", "teams", "team_report", "games", "replay", "scorecard"]      # what the app reads
+SCHEMAS = ["manifest", "teams", "team_report", "games", "replay", "scorecard", "tendency_validation", "hot_hand"]      # what the app reads
+OPTIONAL_FILES = ["tendency_validation", "hot_hand"]       # contract 1.2; an older export has neither and is still valid
 LOG_SCHEMAS = ["prediction_log"]                                                    # written by `predict`, read by `score`
 SUPPORTED_KEYWORDS = {"$id", "$ref", "$defs", "title", "type", "properties", "required", "additionalProperties",
                       "items", "enum", "const", "minimum", "maximum", "minItems", "maxItems"}
@@ -50,6 +51,9 @@ def validate_export_dir(out: Path) -> dict:
     games = check(out / files["games"], "games")
     check(out / files["scorecard"], "scorecard")
     kind = manifest["data_kind"]
+    for name in OPTIONAL_FILES:
+        if name in files and check(out / files[name], name)["data_kind"] != kind:
+            raise ContractError(f"{files[name]} data_kind differs from the manifest")
     for t in teams["teams"]:
         rep = check(out / files["team_reports_dir"] / f"{t['team_id']}.json", "team_report")
         if rep["data_kind"] != kind:

@@ -1,0 +1,436 @@
+{
+  "$id": "tendency_validation.schema.json",
+  "title": "Half-season check of the tendency layer: fit on the first half of a season, predict the second, against raw rates and the old stand-in",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "data_kind",
+    "available",
+    "reason",
+    "season",
+    "shipped",
+    "interval_level",
+    "min_n",
+    "split",
+    "n_games_first",
+    "n_games_second",
+    "bootstrap",
+    "drift",
+    "control",
+    "slices",
+    "selection",
+    "deviation"
+  ],
+  "properties": {
+    "data_kind": {
+      "enum": [
+        "synthetic",
+        "real"
+      ]
+    },
+    "available": {
+      "type": "boolean"
+    },
+    "reason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "season": {
+      "type": "integer"
+    },
+    "shipped": {
+      "type": "string"
+    },
+    "interval_level": {
+      "type": "number",
+      "minimum": 0.5,
+      "maximum": 0.999
+    },
+    "min_n": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "split": {
+      "type": "string"
+    },
+    "n_games_first": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "n_games_second": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "bootstrap": {
+      "type": "string"
+    },
+    "drift": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "available",
+        "season",
+        "n_games",
+        "rate",
+        "deviation"
+      ],
+      "properties": {
+        "available": {
+          "type": "boolean"
+        },
+        "season": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "n_games": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "rate": {
+          "type": "array",
+          "maxItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "scope",
+              "sd",
+              "n_cells"
+            ],
+            "properties": {
+              "scope": {
+                "enum": [
+                  "team",
+                  "player"
+                ]
+              },
+              "sd": {
+                "type": "number",
+                "minimum": 0
+              },
+              "n_cells": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        },
+        "deviation": {
+          "type": "array",
+          "maxItems": 3,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "label",
+              "sd",
+              "n_cells"
+            ],
+            "properties": {
+              "kind": {
+                "enum": [
+                  "league_same_situation",
+                  "team_elsewhere_plus_league_shift",
+                  "player_lineup_adjusted"
+                ]
+              },
+              "label": {
+                "type": "string"
+              },
+              "sd": {
+                "type": "number",
+                "minimum": 0
+              },
+              "n_cells": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        }
+      }
+    },
+    "control": {
+      "type": "array",
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scope",
+          "coverage",
+          "n_cells"
+        ],
+        "properties": {
+          "scope": {
+            "enum": [
+              "team",
+              "player"
+            ]
+          },
+          "coverage": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "n_cells": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "slices": {
+      "type": "array",
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scope",
+          "n_cells",
+          "n_trials",
+          "methods"
+        ],
+        "properties": {
+          "scope": {
+            "enum": [
+              "team",
+              "player"
+            ]
+          },
+          "n_cells": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "n_trials": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "methods": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "method",
+                "label",
+                "log_loss",
+                "coverage",
+                "interval_width",
+                "mean_abs_error",
+                "vs_stand_in",
+                "with_drift",
+                "verdict"
+              ],
+              "properties": {
+                "method": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "log_loss": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "coverage": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "interval_width": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "mean_abs_error": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "vs_stand_in": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "additionalProperties": false,
+                  "required": [
+                    "diff",
+                    "interval"
+                  ],
+                  "properties": {
+                    "diff": {
+                      "type": "number"
+                    },
+                    "interval": {
+                      "type": "array",
+                      "items": {
+                        "type": "number"
+                      },
+                      "minItems": 2,
+                      "maxItems": 2
+                    }
+                  }
+                },
+                "with_drift": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "additionalProperties": false,
+                  "required": [
+                    "log_loss",
+                    "coverage",
+                    "interval_width",
+                    "mean_abs_error",
+                    "vs_stand_in"
+                  ],
+                  "properties": {
+                    "log_loss": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "coverage": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "interval_width": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "mean_abs_error": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "vs_stand_in": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "diff",
+                        "interval"
+                      ],
+                      "properties": {
+                        "diff": {
+                          "type": "number"
+                        },
+                        "interval": {
+                          "type": "array",
+                          "items": {
+                            "type": "number"
+                          },
+                          "minItems": 2,
+                          "maxItems": 2
+                        }
+                      }
+                    }
+                  }
+                },
+                "verdict": {
+                  "enum": [
+                    "ahead",
+                    "level",
+                    "behind",
+                    null
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "selection": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "method",
+          "label",
+          "n_rows",
+          "coverage",
+          "coverage_with_drift"
+        ],
+        "properties": {
+          "method": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "n_rows": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "coverage": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "coverage_with_drift": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 1
+          }
+        }
+      }
+    },
+    "deviation": {
+      "type": "array",
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "label",
+          "n_cells",
+          "coverage",
+          "coverage_with_drift"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "league_same_situation",
+              "team_elsewhere_plus_league_shift",
+              "player_lineup_adjusted"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "n_cells": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "coverage": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "coverage_with_drift": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 1
+          }
+        }
+      }
+    }
+  }
+}

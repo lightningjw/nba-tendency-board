@@ -194,7 +194,7 @@ def test_late_live_logs_are_counted_but_left_out(tmp_path):
 def test_export_carries_the_block_and_an_export_without_it_still_validates(synth_run, world, tmp_path):
     sc = json.loads((synth_run["out"] / "scorecard.json").read_text())
     man = json.loads((synth_run["out"] / "manifest.json").read_text())
-    assert man["contract_version"] == "1.1"
+    assert man["contract_version"] == "1.2"                                             # 1.1 added the block; 1.2 kept it unchanged
     assert sc["prospective"]["available"] is False and sc["prospective"]["heads"] == [] and sc["prospective"]["reason"]   # empty is valid
     old = copy.deepcopy(sc)
     del old["prospective"]                                                              # what a contract 1.0 export looks like
