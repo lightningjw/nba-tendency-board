@@ -64,8 +64,15 @@ INGAME_TEMPO = [f"ig_tmp_{c}" for c in TEMPO_CLASSES]
 # substitution) is a clue about elapsed time. The tempo head may only see what was known at the start:
 START_KNOWN = ["period", "start_clock_s", "game_secs_left", "margin_start", "off_is_home", "start_type_code", "clutch", "two_for_one_window"]
 PREGAME_TEAM = [c for c in PREGAME_POSS if not c.startswith("lineup_")]      # the five on the floor are read at the deciding event too
+# What the tempo head cannot read at its own deciding event it can still read one possession back: the
+# previous possession's fouls, timeouts and penalty state are the best view of where things stood when this
+# one began, and how the previous one ended is known by then too. Added in step 2.3, after the transformer
+# beat the trees on tempo for exactly this reason (it gets the previous possession as a token).
+LAG_SNAPSHOT = ["def_in_penalty", "def_team_fouls_period", "off_team_fouls_period", "off_timeouts_left", "def_timeouts_left",
+                "after_timeout", "off_is_home"]
+LAG_TEMPO = [f"lag_{c}" for c in LAG_SNAPSHOT] + ["lag_ending", "lag_tempo"]
 PREGAME_POSS_ALL = PREGAME_POSS + PREGAME_STYLE + PREGAME_TEMPO
-INGAME_POSS_ALL = INGAME_POSS + INGAME_STYLE + INGAME_TEMPO
+INGAME_POSS_ALL = INGAME_POSS + INGAME_STYLE + INGAME_TEMPO + LAG_TEMPO
 LABELS_22 = ["action_style", "tempo"]
 
 FEATURES = {
@@ -73,7 +80,7 @@ FEATURES = {
     "shot_family": CONTEXT + PREGAME_POSS + INGAME_POSS,
     "finisher": CONTEXT + PREGAME_CAND + INGAME_CAND,
     "action_style": CONTEXT + CONTEXT_22 + PREGAME_POSS + PREGAME_STYLE + INGAME_POSS + INGAME_STYLE,
-    "tempo": START_KNOWN + PREGAME_TEAM + PREGAME_TEMPO + INGAME_POSS + INGAME_TEMPO,
+    "tempo": START_KNOWN + PREGAME_TEAM + PREGAME_TEMPO + INGAME_POSS + INGAME_TEMPO + LAG_TEMPO,
 }
 KIND = {**{c: "context" for c in CONTEXT + CONTEXT_22},
         **{c: "pregame" for c in PREGAME_POSS_ALL + PREGAME_CAND},
@@ -251,6 +258,14 @@ def build_features(poss: pd.DataFrame, only_games: list[str] | None = None) -> F
         for c in classes:
             ind = (counted & (df[col] == c)).astype(int)
             df[prefix + c] = ind.groupby(grp).cumsum() - ind
+
+    # ---- the possession before this one, by either team (-1 on a game's first possession) ----
+    by_game = df.groupby("game_id", sort=False)
+    for c in LAG_SNAPSHOT:
+        df[f"lag_{c}"] = by_game[c].shift(1).fillna(-1).astype(float)
+    df["lag_ending"] = by_game["ending_type"].shift(1).map({c: i for i, c in enumerate(ENDING_CLASSES)}).fillna(len(ENDING_CLASSES)).where(
+        by_game["ending_type"].shift(1).notna(), -1).astype(float)
+    df["lag_tempo"] = by_game["tempo"].shift(1).map({c: i for i, c in enumerate(TEMPO_CLASSES)}).fillna(-1).astype(float)
 
     df = df.merge(tm, left_on=["game_id", "off_team_id"], right_on=["game_id", "team_id"], how="left").drop(columns="team_id")
     st_code = df["start_type"].map({s: i for i, s in enumerate(START_TYPES)}).fillna(START_TYPES.index("other")).astype(int).values

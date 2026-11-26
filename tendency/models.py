@@ -213,12 +213,20 @@ def evaluate(P_model: np.ndarray, P_base: np.ndarray, y: np.ndarray, game_ids: n
     return evaluate_sums(game_sums(P_model, P_base, y, game_ids), split)
 
 
+MODEL_ID = "lightgbm"
+MODEL_LABEL = "Gradient-boosted trees (LightGBM)"
+
+
 @dataclass
 class ModelRun:
     preds: pd.DataFrame          # per eligible held-out possession: probability lists for each head
     scorecard_heads: list[dict]
     splits: pd.Series
     rounds: dict
+    # Everything a second model needs to be scored on exactly the same rows (transformer.py):
+    part: np.ndarray | None = None            # split of each row of Features.poss
+    probs: dict | None = None                 # head -> {"model": P, "baseline": B, "y": label index, "has": label defined}
+    models: list[dict] | None = None          # scorecard `models` block, when more than one model was scored
 
 
 def run_models(feat: Features, log=print) -> ModelRun:
@@ -228,7 +236,7 @@ def run_models(feat: Features, log=print) -> ModelRun:
         raise RuntimeError("candidate rows are not aligned with possession rows")
     splits = assign_splits(poss[["game_id", "season", "tipoff"]])
     part = poss["game_id"].map(splits).values
-    heads_out, rounds, cols = [], {}, {}
+    heads_out, rounds, cols, probs = [], {}, {}, {}
 
     # ---- ending type, shot family, action style, tempo: multiclass ---------------------
     for head, (classes, base_prefix) in MULTICLASS.items():
@@ -243,6 +251,7 @@ def run_models(feat: Features, log=print) -> ModelRun:
         P = predict_multiclass(bst, r, X, base)
         rounds[head] = r
         cols[head] = (P, base)
+        probs[head] = {"model": P, "baseline": base, "y": y, "has": has}
         heads_out.append({"head": head, "splits": [
             evaluate(P[m], base[m], y[m], poss["game_id"].values[m], s)
             for s in ("holdout_games", "holdout_season") for m in [has & (part == s)]]})
@@ -263,6 +272,7 @@ def run_models(feat: Features, log=print) -> ModelRun:
         for s in ("holdout_games", "holdout_season") for m in [has & (part == s)]]})
     log(f"models: finisher: {r} rounds, {int((has & (part == 'train')).sum())} training possessions")
     cols["finisher"] = (P, base)
+    probs["finisher"] = {"model": P, "baseline": base, "y": yslot, "has": has}
 
     held = np.isin(part, ["holdout_games", "holdout_season"])
     preds = poss.loc[held, ["game_id", "poss_idx"]].copy()
@@ -270,7 +280,7 @@ def run_models(feat: Features, log=print) -> ModelRun:
         Pm, Pb = cols[head]
         preds[f"{head}_model"] = [np.round(v, 4).tolist() for v in Pm[held]]
         preds[f"{head}_baseline"] = [np.round(v, 4).tolist() for v in Pb[held]]
-    return ModelRun(preds.reset_index(drop=True), heads_out, splits, rounds)
+    return ModelRun(preds.reset_index(drop=True), heads_out, splits, rounds, part=part, probs=probs)
 
 
 # ---- frozen models for the prospective log (train once, save, predict later) ---------------

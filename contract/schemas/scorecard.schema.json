@@ -159,6 +159,109 @@
                 }
               }
             }
+          },
+          "model_id": {
+            "type": "string"
+          },
+          "challengers": {
+            "type": "array",
+            "maxItems": 3,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "model_id",
+                "replaces_primary",
+                "splits"
+              ],
+              "properties": {
+                "model_id": {
+                  "type": "string"
+                },
+                "replaces_primary": {
+                  "type": "boolean"
+                },
+                "splits": {
+                  "type": "array",
+                  "minItems": 2,
+                  "maxItems": 2,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "split",
+                      "available",
+                      "reason",
+                      "n_possessions",
+                      "n_games",
+                      "model",
+                      "vs_baseline",
+                      "vs_primary",
+                      "verdict",
+                      "top1",
+                      "ece"
+                    ],
+                    "properties": {
+                      "split": {
+                        "enum": [
+                          "holdout_games",
+                          "holdout_season"
+                        ]
+                      },
+                      "available": {
+                        "type": "boolean"
+                      },
+                      "reason": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "n_possessions": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "n_games": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "model": {
+                        "$ref": "#/$defs/metric"
+                      },
+                      "vs_baseline": {
+                        "$ref": "#/$defs/metric"
+                      },
+                      "vs_primary": {
+                        "$ref": "#/$defs/metric"
+                      },
+                      "verdict": {
+                        "enum": [
+                          "ahead",
+                          "level",
+                          "behind",
+                          null
+                        ]
+                      },
+                      "top1": {
+                        "type": [
+                          "number",
+                          "null"
+                        ],
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "ece": {
+                        "type": [
+                          "number",
+                          "null"
+                        ],
+                        "minimum": 0
+                      }
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -262,6 +365,130 @@
               },
               "result": {
                 "$ref": "#/$defs/prospective_result"
+              }
+            }
+          }
+        }
+      }
+    },
+    "models": {
+      "type": "array",
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "model_id",
+          "label",
+          "experimental",
+          "note",
+          "fit"
+        ],
+        "properties": {
+          "model_id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "experimental": {
+            "type": "boolean"
+          },
+          "note": {
+            "type": "string"
+          },
+          "fit": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "chosen",
+              "selection",
+              "hardware",
+              "seconds",
+              "n_train_games",
+              "n_parameters",
+              "configs"
+            ],
+            "properties": {
+              "chosen": {
+                "type": "string"
+              },
+              "selection": {
+                "type": "string"
+              },
+              "hardware": {
+                "type": "string"
+              },
+              "seconds": {
+                "type": "number",
+                "minimum": 0
+              },
+              "n_train_games": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "n_parameters": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "configs": {
+                "type": "array",
+                "maxItems": 3,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "name",
+                    "d_model",
+                    "n_layers",
+                    "history",
+                    "epochs",
+                    "n_parameters",
+                    "seconds",
+                    "valid_loss",
+                    "chosen"
+                  ],
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "d_model": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "n_layers": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "history": {
+                      "type": "boolean"
+                    },
+                    "epochs": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "n_parameters": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "seconds": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "valid_loss": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "chosen": {
+                      "type": "boolean"
+                    }
+                  }
+                }
               }
             }
           }

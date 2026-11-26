@@ -101,7 +101,7 @@ def synth_run(tmp_path_factory):
     root = tmp_path_factory.mktemp("synthetic")
     out = tmp_path_factory.mktemp("export")
     ids = write_synthetic_raw(root, seed=7)
-    counts = run(root, out, max_replays=6, log=lambda *_: None)
+    counts = run(root, out, max_replays=6, log=lambda *_: None, transformer_epochs=2)     # the transformer trains only if PyTorch is installed
     poss = pd.read_parquet(root / "processed" / "possessions.parquet")
     return {"root": root, "out": out, "ids": ids, "counts": counts, "poss": poss,
             "games": json.loads((root / "processed" / "games.json").read_text())}

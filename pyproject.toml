@@ -16,6 +16,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+torch = ["torch>=2.2"]     # optional: the experimental transformer (tendency/transformer_net.py), trained in its own process
 bayes = ["pymc>=6"]        # optional: tendency/tendency_pymc.py only. Nothing in the pipeline imports it (DECISIONS.md 99).
 
 [tool.setuptools]

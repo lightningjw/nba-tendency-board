@@ -32,6 +32,8 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--root", type=Path, default=REPO / root_default, help="data folder (raw/ and processed/ live here)")
         p.add_argument("--out", type=Path, default=REPO / "app" / "data", help="where the app's contract JSON is written")
         p.add_argument("--max-replays", type=int, default=30, help="how many held-out games to export for the replay view")
+        p.add_argument("--no-transformer", action="store_true",
+                       help="skip the experimental transformer (it trains by default when PyTorch is installed)")
         p.add_argument("--predictions", type=Path, default=None,
                        help="prospective log folder to show on the scorecard (default: predictions/ for real data, none for `sample`)")
 
@@ -137,7 +139,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"sample: wrote {len(ids)} synthetic games to {a.root / 'raw'}")
         from .pipeline import run
         predictions = a.predictions if a.predictions is not None else (None if a.cmd == "sample" else REPO / "predictions")
-        run(a.root, a.out, a.max_replays, getattr(a, "fields_verified", False), predictions=predictions)
+        run(a.root, a.out, a.max_replays, getattr(a, "fields_verified", False), predictions=predictions,
+            transformer=False if a.no_transformer else None)
         return 0
     except HostBlockedError as e:
         print(f"BLOCKED: {e}", file=sys.stderr)

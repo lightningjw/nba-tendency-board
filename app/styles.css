@@ -241,3 +241,7 @@ details table { font-size: 0.84rem; margin-top: 6px; }
 .lab .cov { text-align: right; }
 .lab .cov b { display: block; font: 900 1.5rem/1 var(--display); }
 .lab .cov span { display: block; max-width: 11ch; margin-left: auto; line-height: 1.25; margin-top: 2px; }
+
+/* scorecard: three-way table. A smaller verdict chip so it fits in a cell; a standalone "experimental" tag. */
+.verdict.small { font-size: 0.95rem; padding: 4px 7px; border-width: 1.5px; white-space: nowrap; }
+.splitname > .tag { font-size: 0.78rem; font-weight: 600; color: var(--pencil); border: 1px solid var(--pencil); border-radius: 4px; padding: 1px 6px; }
