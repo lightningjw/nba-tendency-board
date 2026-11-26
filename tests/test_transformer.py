@@ -136,6 +136,22 @@ def test_a_model_clear_of_zero_on_both_splits_replaces_the_trees_for_that_head_o
     assert out.preds["tempo_model"].equals(run.preds["tempo_model"])
 
 
+def test_a_win_must_hold_for_a_second_training_seed(fitted):
+    """The interval is about which games were held out, not about the training run. One lucky seed does not replace the trees."""
+    feat, run = fitted
+    probs = {h: run.probs[h]["model"] for h in ALL_HEADS}
+    pr = run.probs["ending_type"]
+    sharp = dict(probs, ending_type=pr["model"] * 0.6 + np.eye(3)[pr["y"]] * 0.4)
+    facts = {"chosen": "test", "selection": "-", "hardware": "-", "seconds": 0.0, "n_train_games": 0, "n_parameters": 0, "configs": []}
+    lucky = {x["head"]: x for x in tr.attach(run, feat, sharp, facts, second=probs).scorecard_heads}["ending_type"]
+    assert lucky["model_id"] == "lightgbm"                                # ahead once, level the second time: stays a challenger
+    assert [s["verdict"] for s in lucky["challengers"][0]["splits"]] == ["ahead", "ahead"]
+    assert [s["verdict"] for s in lucky["challengers"][0]["second_seed"]] == ["level", "level"]
+    twice = tr.attach(run, feat, sharp, facts, second=sharp)
+    assert {x["head"]: x for x in twice.scorecard_heads}["ending_type"]["model_id"] == "transformer"
+    assert "two training seeds" in twice.models[1]["note"]
+
+
 def test_ahead_on_one_split_only_is_not_enough(fitted):
     feat, run = fitted
     probs = {h: run.probs[h]["model"].copy() for h in ALL_HEADS}
@@ -156,9 +172,12 @@ def test_scorecard_with_and_without_a_second_model_is_valid(synth_run):
         assert [m["model_id"] for m in sc["models"]] == ["lightgbm", "transformer"]
         fit = sc["models"][1]["fit"]
         assert len(fit["configs"]) == 3 and sum(c["chosen"] for c in fit["configs"]) == 1 and fit["seconds"] > 0 and "PyTorch" in fit["hardware"]
+        assert len(fit["seeds"]) == 2 and fit["seeds"][0] != fit["seeds"][1]
         assert [c["history"] for c in fit["configs"]] == [True, True, False]
         for h in sc["heads"]:
             assert h["model_id"] in ("lightgbm", "transformer") and len(h["challengers"]) == 1
+            if h["model_id"] == "lightgbm":
+                assert [s["split"] for s in h["challengers"][0]["second_seed"]] == ["holdout_games", "holdout_season"]
             for s in h["challengers"][0]["splits"]:
                 lo, hi = s["vs_primary"]["interval"]
                 assert s["available"] and lo <= s["vs_primary"]["log_loss"] <= hi

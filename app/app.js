@@ -486,7 +486,8 @@ function threeWay(h, lvl) {
   const exp = (S.scorecard.models || []).find((x) => x.model_id === ch.model_id);
   return `<div class="splitname"><h3>Three ways: baseline, ${P.toLowerCase()}, ${C.toLowerCase()}</h3>${exp && exp.experimental ? `<span class="tag">experimental</span>` : ""}</div>
     <div class="scroll"><table class="tv"><thead><tr><th>Held out</th><th>Baseline</th><th>${P}</th><th>${C}</th><th>${C} minus ${P.toLowerCase()} (${lvl}% interval)</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
-    <p class="small muted">Log-loss with its ${lvl}% interval; the difference is paired on the same possessions. ${C === "Transformer" ? "The transformer replaces the trees for this prediction only if the difference is clear of zero on both rows." : "The transformer replaced the trees for this prediction: its difference was clear of zero on both rows."}</p>`;
+    <p class="small muted">Log-loss with its ${lvl}% interval; the difference is paired on the same possessions. ${C === "Transformer" ? `The transformer replaces the trees for this prediction only if the difference is clear of zero on both rows${ch.second_seed ? ", and again when it is trained a second time with a different random seed" : ""}.` : "The transformer replaced the trees for this prediction: its difference was clear of zero on both rows."}
+      ${ch.second_seed ? `Second training run: ${ch.second_seed.map((s) => `${SPLIT[s.split].toLowerCase()}, ${signed(s.vs_primary.log_loss, 4)} (${signed(s.vs_primary.interval[0], 4)} to ${signed(s.vs_primary.interval[1], 4)}), ${V[s.verdict].toLowerCase()}`).join("; ")}.` : ""}</p>`;
 }
 
 // ---------- scorecard: does the tendency layer predict the half-season it has not seen? ----------

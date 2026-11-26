@@ -6,7 +6,7 @@ them in one process abort it, so the pipeline writes the per-game arrays to a fi
 therefore never import `models.py` (or anything else that loads LightGBM): the list of heads and
 their class counts arrive in the payload instead.
 
-    python -m tendency.transformer_net fit   <in.npz> <out.npz> <facts.json> [--max-epochs N] [--seed N]
+    python -m tendency.transformer_net fit   <in.npz> <out.npz> <facts.json> [--max-epochs N] [--seed N] [--config NAME]
     python -m tendency.transformer_net check <in.npz>          # the leakage self-check, printed as JSON
 """
 from __future__ import annotations
@@ -329,11 +329,19 @@ def main(argv: list[str]) -> int:
     threads = min(MAX_THREADS, torch.get_num_threads())
     torch.set_num_threads(threads)
     t0 = time.time()
-    fits = [train(cfg, gd, lambda m: print(m, flush=True), max_epochs, seed) for cfg in CONFIGS[:3]]      # three and no more
+    only = argv[argv.index("--config") + 1] if "--config" in argv else None          # one named configuration (used to score the ablation on its own)
+    todo = [c for c in CONFIGS[:3] if only in (None, c.name)]                          # three and no more
+    fits = [train(cfg, gd, lambda m: print(m, flush=True), max_epochs, seed) for cfg in todo]
     scored = [f for f in fits if f[1]["valid_loss"] is not None] or fits
     model, chosen = min(scored, key=lambda f: f[1]["valid_loss"] if f[1]["valid_loss"] is not None else 0.0)
     probs = predict(model, gd)
+    # The kept configuration once more with another seed. Not a fourth configuration: the same one, to see whether
+    # a verdict against the trees is the model or the dice. `transformer.attach` needs a win from both.
+    kept = next(c for c in CONFIGS if c.name == chosen["name"])
+    again, again_facts = train(kept, gd, lambda m: print(m.replace(kept.name + ":", kept.name + " (second seed):"), flush=True), max_epochs, seed + 1)
+    probs.update({f"second_{h}": v for h, v in predict(again, gd).items()})
     facts = {"chosen": chosen["name"], "selection": "lowest loss on the validation games; held-out games were not looked at",
+             "seeds": [seed, seed + 1], "second_seed_valid_loss": again_facts["valid_loss"],
              "hardware": f"{cpu_name()} CPU, {threads} threads, PyTorch {torch.__version__}",
              "seconds": round(time.time() - t0, 1), "n_train_games": int((gd.game_part == "train").sum()), "n_parameters": chosen["n_parameters"],
              "configs": [{"name": f["name"], "d_model": f["d_model"], "n_layers": f["n_layers"], "history": f["history"], "epochs": f["epochs"],

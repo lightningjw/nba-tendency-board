@@ -259,6 +259,38 @@
                       }
                     }
                   }
+                },
+                "second_seed": {
+                  "type": "array",
+                  "maxItems": 2,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "split",
+                      "vs_primary",
+                      "verdict"
+                    ],
+                    "properties": {
+                      "split": {
+                        "enum": [
+                          "holdout_games",
+                          "holdout_season"
+                        ]
+                      },
+                      "vs_primary": {
+                        "$ref": "#/$defs/metric"
+                      },
+                      "verdict": {
+                        "enum": [
+                          "ahead",
+                          "level",
+                          "behind",
+                          null
+                        ]
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -489,6 +521,19 @@
                     }
                   }
                 }
+              },
+              "seeds": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                },
+                "maxItems": 4
+              },
+              "second_seed_valid_loss": {
+                "type": [
+                  "number",
+                  "null"
+                ]
               }
             }
           }

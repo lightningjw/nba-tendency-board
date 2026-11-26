@@ -118,13 +118,18 @@ def _challenger_split(P: np.ndarray, pr: dict, m: np.ndarray, gids: np.ndarray, 
             "top1": vs_base["top1"]["model"], "ece": vs_base["reliability"]["model"]["ece"]}
 
 
-def attach(run: ModelRun, feat: Features, probs: dict[str, np.ndarray], facts: dict) -> ModelRun:
+def attach(run: ModelRun, feat: Features, probs: dict[str, np.ndarray], facts: dict, second: dict[str, np.ndarray] | None = None) -> ModelRun:
     """Score the transformer on the trees' rows and write the three-way comparison into the run.
 
     The rule (brief section 5): the transformer replaces the trees for a head only if the interval of
     its paired difference against them is clear of zero on BOTH held-out splits. Where it does, it
     becomes that head's primary model (scorecard and replays) and the trees become the challenger.
     Otherwise it is listed as an experimental challenger and nothing else changes.
+
+    One thing is added to the rule. The interval is about which games happened to be held out; it says
+    nothing about the training run. On real seasons one head's verdict changed from "level" to "ahead"
+    between two runs. So when `second` is given (the same configuration trained with another seed), the
+    win has to hold for it as well, on both splits. This can only make a replacement harder.
     """
     poss = feat.poss
     gids, part = poss["game_id"].values, run.part
@@ -138,6 +143,11 @@ def attach(run: ModelRun, feat: Features, probs: dict[str, np.ndarray], facts: d
         masks = {s: pr["has"] & (part == s) for s in SPLITS}
         mine = [_challenger_split(probs[head], pr, masks[s], gids, s, pr["model"]) for s in SPLITS]
         wins = all(s["available"] and s["verdict"] == "ahead" for s in mine)
+        again = None
+        if second is not None:
+            full = [_challenger_split(second[head], pr, masks[s], gids, s, pr["model"]) for s in SPLITS]
+            again = [{"split": s["split"], "vs_primary": s["vs_primary"], "verdict": s["verdict"]} for s in full]
+            wins = wins and all(s["verdict"] == "ahead" for s in again)
         if wins:
             replaced.append(head)
             theirs = [_challenger_split(pr["model"], pr, masks[s], gids, s, probs[head]) for s in SPLITS]
@@ -146,11 +156,15 @@ def attach(run: ModelRun, feat: Features, probs: dict[str, np.ndarray], facts: d
             heads.append({"head": head, "model_id": MODEL_ID, "splits": splits,
                           "challengers": [{"model_id": TREES_ID, "replaces_primary": False, "splits": theirs}]})
         else:
-            heads.append({**entry, "model_id": TREES_ID, "challengers": [{"model_id": MODEL_ID, "replaces_primary": False, "splits": mine}]})
+            ch = {"model_id": MODEL_ID, "replaces_primary": False, "splits": mine}
+            if again is not None:
+                ch["second_seed"] = again                       # the same comparison for the second training seed
+            heads.append({**entry, "model_id": TREES_ID, "challengers": [ch]})
     models = [{"model_id": TREES_ID, "label": TREES_LABEL, "experimental": False, "note": "One model per head, starting from the baseline's odds.", "fit": None},
               {"model_id": MODEL_ID, "label": MODEL_LABEL, "experimental": not replaced,
                "note": ("Primary for: " + ", ".join(replaced) + ". " if replaced else "Does not replace the trees for any head. ")
-                       + "It replaces them for a head only when its paired difference is clear of zero on both held-out splits.",
+                       + "It replaces them for a head only when its paired difference is clear of zero on both held-out splits"
+                       + (", for both of two training seeds." if second is not None else "."),
                "fit": facts}]
     return ModelRun(preds, heads, run.splits, run.rounds, part=run.part, probs=run.probs, models=models)
 
@@ -185,13 +199,16 @@ def run_transformer(feat: Features, run: ModelRun, log=print, max_epochs: int | 
             log(line)
         z = np.load(out)
         probs = {h: z[h] for h in ALL_HEADS}
+        second = {h: z[f"second_{h}"] for h in ALL_HEADS}
         facts = json.loads(facts_f.read_text())
     log(f"transformer: kept '{facts['chosen']}' of {len(facts['configs'])} configurations; {facts['seconds']:.0f} s in all on {facts['hardware']}")
-    res = attach(run, feat, probs, facts)
+    res = attach(run, feat, probs, facts, second)
     for h in res.scorecard_heads:
         ch = h["challengers"][0]
+        twice = {s["split"]: s["verdict"] for s in ch.get("second_seed", [])}
         for s in ch["splits"]:
             if s["available"]:
                 log(f"  {h['head']:13s} {s['split']:15s} {ch['model_id']} vs {h['model_id']}: {s['vs_primary']['log_loss']:+.5f} "
-                    f"({s['vs_primary']['interval'][0]:+.5f} to {s['vs_primary']['interval'][1]:+.5f}) {s['verdict']}")
+                    f"({s['vs_primary']['interval'][0]:+.5f} to {s['vs_primary']['interval'][1]:+.5f}) {s['verdict']}"
+                    + (f"; second seed {twice[s['split']]}" if s["split"] in twice else ""))
     return res
