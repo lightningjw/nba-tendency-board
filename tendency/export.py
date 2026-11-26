@@ -20,7 +20,7 @@ from .prospective import scorecard_block
 from .tendency_layer import INTERVAL_LEVEL as TENDENCY_LEVEL
 from .tendency_layer import METHOD, THRESHOLD, estimate_drift, team_reports
 
-NOT_BUILT = ["transformer predictor", "coach-decision heads", "live mode", "ask box", "LLM-written summaries",
+NOT_BUILT = ["coach-decision heads", "live mode", "ask box", "LLM-written summaries",
              "defense proxies"]
 TENDENCY_NOTE = ("Deviations are estimated on the logit scale with partial pooling: a team's rate against the league, its rate in a situation "
                  "against its other possessions, a player's share against what his usage and the four teammates on the floor predict. "
@@ -138,6 +138,8 @@ def export_all(out: Path, poss: pd.DataFrame, games: list[dict], run: ModelRun, 
     scorecard = {"data_kind": kind, "generated_at": now, "interval_level": INTERVAL_LEVEL,
                  "bootstrap": "1,000 resamples of whole games (possessions within a game are not independent)",
                  "heads": run.scorecard_heads, "prospective": scorecard_block(predictions, kind)}
+    if run.models:                                           # more than one model was scored (transformer.py)
+        scorecard["models"] = run.models
     validate(scorecard, "scorecard")
     _dump(out / "scorecard.json", scorecard)
 

@@ -28,29 +28,68 @@ the first two seasons. Log-loss, lower is better; intervals are 95% from a boots
 | How it ends | 2025-26, 1,230 games | 244,406 | 0.7078 | 0.7194 | -0.0117 (-0.0124 to -0.0110) | 75.9% vs 75.6% |
 | Where the shot comes from | late 2024-25, 492 games | 74,571 | 1.4782 | 1.5010 | -0.0228 (-0.0246 to -0.0211) | 34.6% vs 31.6% |
 | Where the shot comes from | 2025-26, 1,230 games | 184,811 | 1.4801 | 1.4999 | -0.0197 (-0.0208 to -0.0187) | 34.9% vs 32.4% |
-| What kind of shot it is | late 2024-25, 492 games | 74,571 | 1.9838 | 1.9977 | -0.0139 (-0.0151 to -0.0128) | 29.6% vs 29.2% |
-| What kind of shot it is | 2025-26, 1,230 games | 184,811 | 1.9744 | 1.9878 | -0.0133 (-0.0141 to -0.0126) | 29.9% vs 29.7% |
-| How early the first action comes | late 2024-25, 492 games | 94,836 | 0.9180 | 0.9439 | -0.0259 (-0.0276 to -0.0242) | 52.5% vs 50.8% |
-| How early the first action comes | 2025-26, 1,230 games | 238,739 | 0.9221 | 0.9449 | -0.0228 (-0.0239 to -0.0217) | 52.2% vs 50.5% |
+| What kind of shot it is (transformer) | late 2024-25, 492 games | 74,571 | 1.9807 | 1.9977 | -0.0170 (-0.0187 to -0.0154) | 29.9% vs 29.2% |
+| What kind of shot it is (transformer) | 2025-26, 1,230 games | 184,811 | 1.9727 | 1.9878 | -0.0151 (-0.0162 to -0.0140) | 30.2% vs 29.7% |
+| How early the first action comes | late 2024-25, 492 games | 94,836 | 0.9119 | 0.9439 | -0.0320 (-0.0339 to -0.0302) | 53.3% vs 50.8% |
+| How early the first action comes | 2025-26, 1,230 games | 238,739 | 0.9159 | 0.9449 | -0.0290 (-0.0302 to -0.0279) | 52.9% vs 50.5% |
 
 The baselines: usage shares among the five on the floor (finisher); the offense's season-to-date shares shrunk
 toward the league's (ending type, shot location); the style mix of the five on the floor, shifted by how the
 possession started (shot style, ten classes); and the offense's early / middle / late mix on possessions that
 started the same way (tempo). All from games that tipped off earlier. The models are
 gradient-boosted trees that start from the baseline's odds and learn corrections from clock, score, fouls,
-timeouts, lineup and what has happened so far in the game.
+timeouts, lineup and what has happened so far in the game. For shot style the model is a small transformer
+instead; the next section says why only there.
 
 **Read these as small.** Every interval is clear of zero and the two splits agree, so the lift is real. It is also
-a fraction of a percentage point of top-pick accuracy for two of the three predictions. Next-possession outcomes
+a fraction of a percentage point of top-pick accuracy for three of the five predictions, and at most three points for
+the others. Next-possession outcomes
 are mostly noise once you know who is on the floor, and next-shooter models are not new
 ([HoopsOracle](https://github.com/anovick1/HoopsOracle) does it from the same feed). What this project adds is
 the checking: possession segmentation that reconciles to the final score in 3,690 of 3,690 games with 11
 unexplained changes of possession in 738,812, leakage tests, baselines for every head, and intervals on every
 number.
 
+## Trees or a transformer
+
+A small causal transformer reads each game as a sequence of possessions: position k is given what is known when
+possession k starts, plus everything about possession k - 1. It gets the same inputs as the trees, starts from
+the same baselines, and is scored on the same possessions. It replaces the trees for a prediction only if its
+paired difference is clear of zero on both held-out splits, for two training seeds.
+
+| Prediction | Held out | Baseline | Trees | Transformer | Transformer minus trees (95% interval) | |
+|---|---|---|---|---|---|---|
+| Who finishes | late 2024-25 | 1.5716 | 1.5675 | 1.5675 | +0.0000 (-0.0006 to +0.0006) | level |
+| Who finishes | 2025-26 | 1.5711 | 1.5668 | 1.5675 | +0.0008 (+0.0004 to +0.0011) | trees |
+| How it ends | late 2024-25 | 0.6970 | 0.6860 | 0.6904 | +0.0044 (+0.0038 to +0.0052) | trees |
+| How it ends | 2025-26 | 0.7194 | 0.7078 | 0.7129 | +0.0052 (+0.0047 to +0.0057) | trees |
+| Where the shot comes from | late 2024-25 | 1.5010 | 1.4782 | 1.4766 | -0.0016 (-0.0028 to -0.0004) | transformer |
+| Where the shot comes from | 2025-26 | 1.4999 | 1.4801 | 1.4822 | +0.0021 (+0.0014 to +0.0029) | trees |
+| What kind of shot it is | late 2024-25 | 1.9977 | 1.9838 | 1.9807 | -0.0031 (-0.0046 to -0.0017) | transformer |
+| What kind of shot it is | 2025-26 | 1.9878 | 1.9744 | 1.9727 | -0.0018 (-0.0026 to -0.0008) | transformer |
+| How early the first action comes | late 2024-25 | 0.9439 | 0.9119 | 0.9166 | +0.0047 (+0.0032 to +0.0062) | trees |
+| How early the first action comes | 2025-26 | 0.9449 | 0.9159 | 0.9201 | +0.0042 (+0.0033 to +0.0051) | trees |
+
+- **It wins one of five, by a little.** Shot style goes to the transformer: ahead on both splits, with seeds 7
+  and 8 and again with 11 and 23. The gain is 0.002 to 0.003, an eighth to a quarter of what the trees had
+  already gained over the baseline. Everywhere else boosted trees on running counts are as good or better, and
+  the transformer stays an experiment there.
+- **The sequence does help; it is the trees that are hard to beat.** The same network with the sequence switched
+  off is behind the trees on every prediction. Switching it on buys 0.006 to 0.007 on shot style and 0.008 on
+  tempo, and closes most of the gap elsewhere without crossing it.
+- **Its first win was not real.** On the first run the transformer beat the trees on tempo. It was being handed
+  the previous possession's fouls, timeouts and outcome, which the trees' tempo model had never been given.
+  Given the same, the trees improved by 0.006 and the transformer fell behind them. The trees kept the fix.
+- **One training run is not enough to change a model.** The interval is about which games were held out, not
+  about the training run, and shot location is ahead on one split with one seed and level with the next. So a
+  win has to repeat with a second seed. That is stricter than the rule this project started with.
+- **Cost.** 123,126 parameters, 62 seconds to train on a laptop CPU (Apple M3 Max, 8 threads); 327 seconds for
+  all three configurations tried and the second seed. PyTorch is optional (`pip install -e ".[torch]"`) and
+  trains in its own process; without it the scorecard has the trees only. Not in the pregame log.
+
 ## What the feed lets us label
 
-The last two rows of the table rest on labels added in step 2.2. Each is an outcome of the possession and is
+The last four rows of the results table rest on labels added in step 2.2. Each is an outcome of the possession and is
 defined on only part of them (738,812 possessions, three seasons):
 
 | Label | Read from | Defined when | Share of possessions |
@@ -64,12 +103,13 @@ defined on only part of them (738,812 possessions, three seasons):
 
 - **A style is the scorer's word for the shot** ("driving", "pullup", "cutting"), not the play that was called.
   32% of shots carry no word at all; a jump shot with none is 94% threes and 97% assisted when it goes in.
-- **The first style baseline was too easy and was replaced.** Against the lineup's style mix alone the model
+- **The first style baseline was too easy and was replaced.** Against the lineup's style mix alone the trees
   won by 0.086. A baseline that also knows how the possession started took 85% of that away. The table shows
   the lift over the tougher one.
 - **Tempo may only see what was known when the possession began.** Most context here is read just before the
   deciding event, and for tempo that leaks: a timeout in the middle of a possession says time has passed. A
-  quarter of the first tempo result came from that and was given back.
+  quarter of the first tempo result came from that and was given back. It reads the previous possession's
+  fouls, timeouts and outcome instead, which is where things stood at the start.
 - **Two scorer's tags double as a check on the pipeline**: second-chance agrees with its count of offensive
   rebounds on 99.6% of 368,467 tagged possessions, from-turnover with how the possession started on 99.99%.
 - **The two new predictions are not in the pregame log.** They are scored looking back only.
@@ -153,9 +193,9 @@ choice made along the way), `NEXT.md`.
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
+pip install -e ".[dev]"                 # add ",torch" for the transformer; without it the scorecard has the trees only
 
-pytest                                  # about 90 s
+pytest                                  # about two minutes
 python -m tendency sample               # synthetic games -> app/data (no network)
 python -m http.server 8000 -d app       # open http://localhost:8000
 ```
@@ -168,7 +208,7 @@ python -m tendency bulk --seasons 2023 2024 2025
 
 That downloads whole seasons from `shufinskiy/nba_data` (about 19 MB each, plus 4 MB for full player names), rebuilds per-game files, builds
 possessions, features and models, and writes validated contract JSON to `app/data`. Three seasons take about
-five minutes and 4 GB of RAM. Reload the app; no front-end change is needed. Add `--out data/real_export` to
+twelve minutes with the transformer (five with `--no-transformer`) and 4 GB of RAM. Reload the app; no front-end change is needed. Add `--out data/real_export` to
 keep the bundled synthetic sample in place. Archives exist from 2020 and are refreshed by their maintainer, not
 nightly.
 
@@ -269,6 +309,8 @@ tendency/             pipeline package
   prospective.py      freeze a model, log before tip-off, score after; the scorecard's prospective block
   features.py         context / pregame / in-game features and the baselines (DuckDB)
   models.py           splits, LightGBM per head, log-loss with game-bootstrap intervals, reliability
+  transformer.py      a small causal transformer scored beside the trees; replaces them only where it clearly wins
+  transformer_net.py  the network itself: the only module that imports PyTorch, trained in its own process
   tendency_layer.py   the team report: partial pooling across teams, situations and players, with drift
   tendency_validation.py  fit on half a season, predict the other half, against raw rates and the stand-in
   tendencies.py       the earlier simple-shrinkage stand-in, kept as the reference the validation scores against

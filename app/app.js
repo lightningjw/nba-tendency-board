@@ -106,6 +106,16 @@ function probRows(headId, labels, pred, hitIdx, split, pickIdx) {
   }).join("")}</div>`;
 }
 
+// Contract 1.4: a second model may be scored beside the trees. Older exports, and ones made without PyTorch, have none.
+const MODEL_SHORT = { lightgbm: "Trees", transformer: "Transformer" };
+const shortModel = (id) => MODEL_SHORT[id] || id;
+function secondModel() {
+  const models = S.scorecard.models || [], t = models.find((m) => m.model_id === "transformer");
+  if (!t) return "";
+  const won = S.scorecard.heads.filter((h) => h.model_id === "transformer").map((h) => head(h.head).label.toLowerCase());
+  return ` A small transformer that reads the game's earlier possessions as a sequence was tried against the trees on the same possessions. ${won.length ? `It replaced them for: ${esc(won.join("; "))}.` : "It did not clearly beat them for any prediction, so it stays an experiment;"} <a href="#scorecard">the scorecard</a> shows both.`;
+}
+
 // ---------- view: method ----------
 async function renderMethod() {
   const m = S.manifest, c = m.coverage, synth = m.data_kind === "synthetic";
@@ -149,7 +159,7 @@ async function renderMethod() {
     <div class="cols">${m.heads.map((h) => `<div class="sheet"><h3>${esc(h.label)}</h3>
       <p>${h.classes ? esc(h.class_labels.join(", ")) + "." : "One of the five offensive players on the floor."}${h.conditional_on ? ` Given that ${esc(h.conditional_on)}.` : ""}</p>
       <p class="small muted">Baseline: ${esc(h.baseline)}.${h.logged_before_tipoff === false ? " Scored looking back only; not part of the pregame log." : ""}</p></div>`).join("")}</div>
-    <p style="margin-top:14px">The model for each prediction is gradient-boosted trees that start from the baseline's odds and learn corrections from game context: clock, score, fouls, timeouts, who is on the floor, how the possession started, and what has happened so far in the game. A prediction is kept only if it beats its baseline on real games it never saw; the scorecard shows by how much, and the margins are small.</p>
+    <p style="margin-top:14px">The model for each prediction is gradient-boosted trees that start from the baseline's odds and learn corrections from game context: clock, score, fouls, timeouts, who is on the floor, how the possession started, and what has happened so far in the game. A prediction is kept only if it beats its baseline on real games it never saw; the scorecard shows by how much, and the margins are small.${secondModel()}</p>
   </section>
 
   ${m.labels && m.labels.length ? `<section class="section"><h2>What the feed lets us label</h2>
@@ -438,11 +448,46 @@ function renderScorecard() {
   <section class="sheet pro" aria-label="Prospective results"><h2 style="margin-bottom:4px">Logged before tip-off</h2>${proHtml}</section>
   <h2 class="lookback">Looking back</h2>
   <p class="muted" style="margin-top:0">Retrospective: held-out games and a held-out season, scored after the fact.</p>
+  ${modelsNote()}
   ${sc.heads.map((h) => `<div class="sheet"><h2 style="margin-bottom:4px">${esc(head(h.head).label)}</h2>
     <p class="small muted">Baseline: ${esc(head(h.head).baseline)}.${head(h.head).conditional_on ? ` Scored only when ${esc(head(h.head).conditional_on)}.` : ""}${head(h.head).logged_before_tipoff === false ? " Not part of the pregame log: these results are looking back only." : ""}</p>
-    ${h.splits.map((s) => block(h, s)).join("")}</div>`).join("")}
+    ${h.splits.map((s) => block(h, s)).join("")}${threeWay(h, lvl)}</div>`).join("")}
   <p class="note plain">Intervals: ${esc(sc.bootstrap)}. Calibration pools every class: each dot is a band of predicted probabilities and how often those calls came true.</p>
   ${tendencyCheck()}`;
+}
+
+// ---------- scorecard: two models on the same possessions (contract 1.4) ----------
+function modelsNote() {
+  const models = S.scorecard.models || [], t = models.find((m) => m.fit);
+  if (models.length < 2 || !t) return "";
+  const f = t.fit, mins = f.seconds >= 90 ? `${(f.seconds / 60).toFixed(0)} minutes` : `${f.seconds.toFixed(0)} seconds`;
+  return `<div class="sheet"><h3>Two models, the same possessions</h3>
+    <p>Each prediction below is scored for ${models.map((m) => `<b>${esc(shortModel(m.model_id).toLowerCase())}</b> (${esc(m.label.charAt(0).toLowerCase() + m.label.slice(1))})`).join(" and ")}. ${esc(t.note)} ${t.experimental ? "It is marked experimental." : ""} The replay shows each prediction's primary model.</p>
+    <p class="small muted">The transformer: ${f.configs.length} configurations tried and no more; "${esc(f.chosen)}" kept (${esc(f.selection)}). ${int(f.n_parameters)} parameters, ${int(f.n_train_games)} training games, ${mins} for all ${f.configs.length} on ${esc(f.hardware)}. It is given the same inputs and starts from the same baselines as the trees.</p>
+    <details><summary>The configurations</summary><div class="scroll"><table class="tv"><thead><tr><th>Configuration</th><th>Width</th><th>Layers</th><th>Reads earlier possessions</th><th>Parameters</th><th>Epochs</th><th>Seconds</th><th>Validation loss</th></tr></thead><tbody>
+      ${f.configs.map((c) => `<tr class="${c.chosen ? "ship" : ""}"><th>${esc(c.name)}${c.chosen ? ` <span class="tag">kept</span>` : ""}</th><td>${c.d_model}</td><td>${c.n_layers}</td><td>${c.history ? "yes" : "no"}</td><td>${int(c.n_parameters)}</td><td>${c.epochs}</td><td>${c.seconds.toFixed(0)}</td><td>${c.valid_loss === null ? "none" : c.valid_loss.toFixed(4)}</td></tr>`).join("")}
+    </tbody></table></div><p class="small muted">Validation loss is the sum of the five predictions' log-losses on the validation games. "no_history" is the same network with the sequence switched off.</p></details></div>`;
+}
+
+function threeWay(h, lvl) {
+  const ch = (h.challengers || [])[0];
+  if (!ch) return "";
+  const prim = h.model_id || "lightgbm", P = shortModel(prim), C = shortModel(ch.model_id);
+  const m = (x) => (x ? `${x.log_loss.toFixed(4)}<br><span class="small muted">${x.interval[0].toFixed(4)} to ${x.interval[1].toFixed(4)}</span>` : "none");
+  const V = { ahead: `${C} ahead`, level: "No clear difference", behind: `${P} ahead` };
+  const cls = { ahead: "model_better", level: "inconclusive", behind: "model_better" };     // model against model: a clear winner is green whichever it is
+  const rows = ch.splits.map((c) => {
+    const s = h.splits.find((x) => x.split === c.split);
+    if (!c.available || !s || !s.available) return `<tr><th>${SPLIT[c.split]}</th><td colspan="5">Not available: ${esc(c.reason || (s && s.reason) || "no held-out possessions")}.</td></tr>`;
+    return `<tr><th>${SPLIT[c.split]}<br><span class="small muted">${int(c.n_possessions)} possessions, ${int(c.n_games)} games</span></th><td>${m(s.baseline)}</td><td>${m(s.model)}</td><td>${m(c.model)}</td>
+      <td>${signed(c.vs_primary.log_loss, 4)}<br><span class="small muted">${signed(c.vs_primary.interval[0], 4)} to ${signed(c.vs_primary.interval[1], 4)}</span></td>
+      <td><span class="verdict small ${cls[c.verdict]}">${V[c.verdict]}</span></td></tr>`;
+  }).join("");
+  const exp = (S.scorecard.models || []).find((x) => x.model_id === ch.model_id);
+  return `<div class="splitname"><h3>Three ways: baseline, ${P.toLowerCase()}, ${C.toLowerCase()}</h3>${exp && exp.experimental ? `<span class="tag">experimental</span>` : ""}</div>
+    <div class="scroll"><table class="tv"><thead><tr><th>Held out</th><th>Baseline</th><th>${P}</th><th>${C}</th><th>${C} minus ${P.toLowerCase()} (${lvl}% interval)</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+    <p class="small muted">Log-loss with its ${lvl}% interval; the difference is paired on the same possessions. ${C === "Transformer" ? `The transformer replaces the trees for this prediction only if the difference is clear of zero on both rows${ch.second_seed ? ", and again when it is trained a second time with a different random seed" : ""}.` : "The transformer replaced the trees for this prediction: it was ahead on both rows, and again when trained a second time with a different random seed."}
+      ${ch.second_seed ? `Second training run: ${ch.second_seed.map((s) => `${SPLIT[s.split].toLowerCase()}, ${signed(s.vs_primary.log_loss, 4)} (${signed(s.vs_primary.interval[0], 4)} to ${signed(s.vs_primary.interval[1], 4)}), ${V[s.verdict].toLowerCase()}`).join("; ")}.` : ""}</p>`;
 }
 
 // ---------- scorecard: does the tendency layer predict the half-season it has not seen? ----------

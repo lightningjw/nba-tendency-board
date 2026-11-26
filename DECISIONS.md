@@ -446,3 +446,76 @@ table: trained on 1,968 games, held out late 2024-25 (492 games) and all of 2025
      one planted style quirk (a team that triples its pull-ups in the fourth quarter) that a test recovers. Pace
      is drawn after everything else so the eight teams are the ones the older tests know.
 134. **`inspect` prints the new labels beside each possession**, so they can be read against the raw actions.
+
+## Step 2.3, a transformer over possession tokens (2026-11-26)
+
+Numbers are from three seasons (`data/real3`), the README's footing: 1,673 training games plus 295 for early
+stopping, held out late 2024-25 (492 games) and 2025-26 (1,230 games). Differences are transformer minus trees,
+paired on the same possessions, 95% interval from resampling whole games.
+
+### The answer
+135. **The transformer replaces the trees for one prediction of five: shot style.** -0.0031 (-0.0046 to -0.0017)
+     on late 2024-25 and -0.0018 (-0.0026 to -0.0008) on 2025-26, with a second training seed agreeing, and with
+     seeds 7, 11 and 23 agreeing in a separate check. Top pick right 30.2% against the trees' 29.9% on 2025-26.
+     That is between an eighth and a quarter of what the trees already gained over the baseline. Real, and small.
+136. **Everywhere else it is level or behind, and stays an experiment there.** Who finishes: level, then behind
+     (+0.0008, +0.0004 to +0.0011). How it ends: behind on both (+0.0044, +0.0052). Shot location: ahead on one
+     split, behind on the other. Tempo: behind on both (+0.0047, +0.0042).
+137. **What the sequence is worth, measured.** The third configuration is the same network with the sequence
+     switched off. Without it the network is behind the trees on every head (by 0.002 to 0.013). Adding the
+     sequence buys 0.006 to 0.007 on shot style, 0.008 to 0.009 on tempo, 0.002 on finisher, 0.001 to 0.004 on
+     shot location, and nothing on ending type (slightly worse). So the gain on style is the sequence, and on the other heads the
+     sequence closes most of the gap to the trees without crossing it.
+
+### Two things the rule, read literally, would have got wrong
+138. **Tempo looked like a win and was an input advantage.** First run: the transformer ahead of the trees on
+     tempo on both splits, and again with another seed. The reason was in the inputs. Position k receives
+     possession k - 1 as a token, including its fouls, timeouts and outcome, and step 2.2 had denied the tree
+     tempo head anything read at its own deciding event without giving it a substitute. Giving the trees the
+     previous possession's late context and outcome (`features.LAG_TEMPO`, nine columns, registered as in-game
+     and leak-tested) improved them by 0.006 on both splits, and the transformer is now behind them. The fix
+     ships: the tree tempo head goes from -0.0228 to -0.0290 against its baseline on 2025-26. I changed the
+     trees after looking at held-out results; the effect is seven times the width of its interval.
+139. **A win must hold for a second training seed.** The interval that decides a replacement is about which
+     games were held out; it says nothing about the training run. Between two runs with different inputs, shot
+     style went from "ahead, level" to "ahead, ahead". So the kept configuration is trained once more with the
+     next seed (about a minute), and a head changes hands only if it is ahead on both splits both times. This is
+     stricter than the rule I was given and can only prevent a replacement. Shot location shows why: ahead on
+     the first split with seed 7, level with seed 8.
+140. **Not done: averaging seeds.** The mean of three runs was better than any one (shot style -0.0065 and
+     -0.0052; shot location ahead on both splits). An ensemble is a fourth configuration; the step allows three.
+
+### The model
+141. **Three configurations and no more**: "small" (64 wide, 2 layers, 123,126 parameters), "wide" (128, 3 layers,
+     523,638) and "no_history" (small with the sequence off). The one with the lowest validation loss is kept:
+     small, 6.6334 against 6.6369 and 6.6551. Held-out games play no part in the choice.
+142. **Hardware and time.** Apple M3 Max, CPU only, 8 threads, PyTorch 2.15.0. All three configurations and the
+     second seed: 327 seconds on 1,673 training games, far inside the hour a season the step allows. The kept one
+     alone: 62 seconds, 8 epochs.
+143. **Same inputs as the trees, same baselines, same rows.** Every column the transformer reads is one of the
+     trees' registered features (a test checks it). Each head adds its output to the log of the baseline and
+     starts at zero, so an untrained network is exactly the baseline, as LightGBM's `init_score` makes the
+     trees. Scoring uses `evaluate()` on the trees' own row masks.
+144. **Leakage is handled by where things sit.** Position k gets the start-known context of possession k and
+     everything about possession k - 1, under a causal mask. The tempo head reads the trunk alone; the other
+     heads also get k's late context and its five, fused in after the trunk. The self-check perturbs labels
+     from k onward, features after k, and k's own late context, and requires predictions up to k (and tempo at
+     k) not to move at all; it also requires earlier changes to move later predictions, and it catches a copy
+     of the model that is fed possession k's own outcome.
+145. **Player identity is an embedding, learned from training games; anyone first seen later shares one.** The
+     trees have no player identity, only each player's pregame numbers. I count this as the model, not as an
+     extra input: it is what a network can do with an id and a tree cannot.
+146. **The sequence is the game's eligible possessions.** Heaves and possessions cut off by the horn are skipped.
+
+### Plumbing
+147. **PyTorch runs in its own process.** PyTorch and LightGBM each load an OpenMP runtime, and on macOS two in
+     one process abort it. The documented escape hatch (`KMP_DUPLICATE_LIB_OK`) is described by its own error
+     message as unsafe, so `transformer.py` writes the arrays to a temporary file, starts
+     `python -m tendency.transformer_net`, and reads probabilities back. A test checks that module never loads
+     LightGBM. PyTorch is an optional extra; without it the pipeline says so and the scorecard has one model.
+148. **Contract 1.4.** The scorecard gains an optional `models` list and, per head, `model_id` (its primary
+     model) and `challengers` (the other model's results on the same possessions, its paired difference against
+     the primary, and the second seed's verdict). Replays show each head's primary model. Exports made without
+     PyTorch, and 1.0 to 1.3 exports, validate and render.
+149. **The pregame log is untouched.** A frozen model is still three LightGBM heads; shot style is not logged.
+150. **CI installs CPU-only PyTorch** so the leakage test runs there, from PyTorch's CPU wheel index.

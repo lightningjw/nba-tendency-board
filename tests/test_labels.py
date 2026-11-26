@@ -175,6 +175,22 @@ def test_new_head_features_are_registered_and_none_is_a_label_of_the_same_posses
     assert all(ft.KIND[c] == "ingame" for c in ft.INGAME_STYLE + ft.INGAME_TEMPO)
 
 
+def test_tempo_reads_the_possession_before_it_and_nothing_of_its_own(small_poss):
+    """Step 2.3: the tempo head gets the previous possession's late context and outcome, the nearest thing to 'where things stood at the start'."""
+    f = build_features(small_poss).poss
+    assert set(ft.LAG_TEMPO) <= set(ft.FEATURES["tempo"]) and all(ft.KIND[c] == "ingame" for c in ft.LAG_TEMPO)
+    gid = _games(small_poss)[10]
+    raw = small_poss[small_poss["game_id"] == gid].sort_values("poss_idx").reset_index(drop=True)
+    got = f[f["game_id"] == gid].set_index("poss_idx")
+    for k in got.index[got.index > 0][:60]:
+        prev = raw.iloc[k - 1]
+        assert got.loc[k, "lag_def_team_fouls_period"] == prev["def_team_fouls_period"] and got.loc[k, "lag_after_timeout"] == int(prev["after_timeout"])
+        assert got.loc[k, "lag_ending"] == {"shot": 0, "foul_drawn": 1, "turnover": 2}.get(prev["ending_type"], 3)
+        assert got.loc[k, "lag_tempo"] == {"early": 0, "middle": 1, "late": 2}.get(prev["tempo"], -1)
+    if 0 in got.index:
+        assert got.loc[0, "lag_ending"] == -1 and got.loc[0, "lag_def_in_penalty"] == -1
+
+
 def test_scrambling_rewrites_the_new_labels_so_the_guard_has_something_to_catch(small_poss):
     mask = np.ones(len(small_poss), bool)
     alt = scramble_outcomes(small_poss, mask)
@@ -187,7 +203,7 @@ def test_no_pregame_or_ingame_leak_in_the_new_features(small_poss):
     games = _games(small_poss)
     assert pregame_leaks(build_features, small_poss, games[30], ft.PREGAME_STYLE + ft.PREGAME_TEMPO, []) == []
     for k in (1, 60, 150):
-        assert ingame_leaks(build_features, small_poss, games[20], k, ft.INGAME_STYLE + ft.INGAME_TEMPO, []) == []
+        assert ingame_leaks(build_features, small_poss, games[20], k, ft.INGAME_STYLE + ft.INGAME_TEMPO + ft.LAG_TEMPO, []) == []
 
 
 def test_the_new_pregame_features_do_move_when_earlier_games_change(small_poss):
@@ -245,7 +261,7 @@ def test_new_baselines_are_probabilities_and_tempo_knows_how_the_possession_star
 def test_export_carries_five_heads_label_coverage_and_the_new_fields(synth_run):
     out = synth_run["out"]
     man = json.loads((out / "manifest.json").read_text())
-    assert man["contract_version"] == "1.3"
+    assert man["contract_version"] == "1.4"
     assert [h["id"] for h in man["heads"]] == ["finisher", "ending_type", "shot_family", "action_style", "tempo"]
     assert [h["logged_before_tipoff"] for h in man["heads"]] == [True, True, True, False, False]
     assert man["heads"][3]["classes"] == ACTION_STYLES and len(man["heads"][3]["class_labels"]) == 10
