@@ -24,7 +24,6 @@
 ## Stubs, and where each plugs in (`tendency/stubs/`)
 | Stub | Phase | Slots in at |
 |---|---|---|
-| `transformer.run_transformer` | 2 | beside `models.run_models`; same `ModelRun` out |
 | `coach_heads.label_coach_decisions` | 2 | new labels in `possessions.py`, new head ids in the manifest schema |
 | `live.serve_live` | 3 | FastAPI service that serves the replay contract for a game in progress |
 | `llm.summarize_team_report`, `llm.question_to_query` | 3 | reads team report JSON only; never answers from memory |
@@ -51,6 +50,18 @@
   - No passer-to-shooter pair rows: `assister_id` is on the table, nothing reads it yet.
   - No player-scope rows for the new labels (a player's pull-up share after timeouts, say).
   - `after_timeout` still counts a timeout taken in the middle of a possession (ASSUMPTIONS.md, "Debatable").
+
+## Step 2.3, done 2026-11-26: the transformer (DECISIONS.md 135 onward)
+- `tendency/transformer.py` and `transformer_net.py`: a small causal transformer over each game's possessions,
+  scored beside the trees on the same rows. Optional (`pip install -e ".[torch]"`); it trains in its own process.
+- It replaces the trees for shot style only. Everywhere else it is level or behind and stays an experiment.
+- Left out:
+  - Not in the pregame log. A frozen model is still three LightGBM heads.
+  - No ensemble of seeds, although averaging three runs was better than any one of them: that would have been
+    a fourth configuration and the step allows three.
+  - The table has no start-of-possession fouls, timeouts or lineup, only the values read at the deciding event.
+    The tempo head now borrows the previous possession's; a proper start snapshot in `possessions.py` is cleaner.
+  - The sequence holds eligible possessions only (heaves and possessions cut off by the horn are skipped).
 
 ## Known weaknesses worth fixing early
 - Timeouts-left and the penalty flag use simplified rules (see ASSUMPTIONS.md).

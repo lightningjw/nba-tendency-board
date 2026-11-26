@@ -322,8 +322,7 @@ def build_features(poss: pd.DataFrame, only_games: list[str] | None = None) -> F
     code = df["start_type"].map({s: i for i, s in enumerate(START_TYPES)}).fillna(START_TYPES.index("other")).astype(int).values
     adj = df[[f"lineup_sty_{c}" for c in ACTION_STYLES]].values * shift[shift_row.reindex(df["game_id"].values).values, code]
     adj = adj / adj.sum(axis=1, keepdims=True)
-    for j, c in enumerate(ACTION_STYLES):
-        df[f"start_sty_{c}"] = adj[:, j]
+    df = pd.concat([df, pd.DataFrame(adj, columns=[f"start_sty_{c}" for c in ACTION_STYLES], index=df.index)], axis=1)   # one concat, not ten inserts
     del adj
 
     elig = df[df["model_eligible"]].sort_values(["gcode", "poss_idx"]).reset_index(drop=True)
