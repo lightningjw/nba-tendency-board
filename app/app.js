@@ -7,7 +7,8 @@ const SCHEMAS = ["manifest", "teams", "team_report", "games", "replay", "scoreca
 const OPTIONAL = ["tendency_validation", "hot_hand"];      // contract 1.2; an older export has neither and still renders
 const VIEWS = ["method", "team", "replay", "scorecard", "hothand"];
 const FAMS = ["rim", "paint", "midrange", "corner3", "above_break3"];
-const HEADS = ["finisher", "ending_type", "shot_family"];
+const HEADS = ["finisher", "ending_type", "shot_family"];      // the three the guess mode asks about; every export has them
+const NUMBER = ["zero", "One", "Two", "Three", "Four", "Five", "Six"];
 const $ = (sel) => document.querySelector(sel);
 
 const S = {
@@ -144,12 +145,22 @@ async function renderMethod() {
   ${synth ? `<p class="note">This build runs on simulated games so the whole thing can be clicked through before real data is ingested. Team and player names are placeholders. No number on any page is an NBA result, and no claim is made that the models beat their baselines on real games.</p>` : ""}
   ${m.field_names_verified ? "" : `<p class="note">The pipeline's feed field names have not been checked against a real game file yet. Until that check passes, treat the real-data path as untested.</p>`}
 
-  <section class="section"><h2>Three predictions, each with a baseline to beat</h2>
+  <section class="section"><h2>${NUMBER[m.heads.length] || m.heads.length} predictions, each with a baseline to beat</h2>
     <div class="cols">${m.heads.map((h) => `<div class="sheet"><h3>${esc(h.label)}</h3>
       <p>${h.classes ? esc(h.class_labels.join(", ")) + "." : "One of the five offensive players on the floor."}${h.conditional_on ? ` Given that ${esc(h.conditional_on)}.` : ""}</p>
-      <p class="small muted">Baseline: ${esc(h.baseline)}.</p></div>`).join("")}</div>
+      <p class="small muted">Baseline: ${esc(h.baseline)}.${h.logged_before_tipoff === false ? " Scored looking back only; not part of the pregame log." : ""}</p></div>`).join("")}</div>
     <p style="margin-top:14px">The model for each prediction is gradient-boosted trees that start from the baseline's odds and learn corrections from game context: clock, score, fouls, timeouts, who is on the floor, how the possession started, and what has happened so far in the game. A prediction is kept only if it beats its baseline on real games it never saw; the scorecard shows by how much, and the margins are small.</p>
   </section>
+
+  ${m.labels && m.labels.length ? `<section class="section"><h2>What the feed lets us label</h2>
+    <p>Beyond who finished and where the shot came from, play-by-play says a few things about how a possession went. Each is defined on only part of the possessions, and the table says how much. All of them are outcomes: they are counted and predicted, never used to predict the possession they describe.</p>
+    <div class="sheet"><ul class="lab">
+      ${m.labels.map((l) => `<li><div><b>${esc(l.label)}</b><div class="small muted">Read from: ${esc(l.source.charAt(0).toLowerCase() + l.source.slice(1))}. Defined when ${esc(l.defined_when)}.</div></div>
+        <div class="cov"><b>${pct(l.coverage, 1)}</b><span class="small muted">${int(l.n_defined)} of ${int(l.n_possessions)} possessions</span></div></li>`).join("")}
+    </ul>
+    ${m.labels.filter((l) => l.note).map((l) => `<p class="small muted" style="margin-top:10px">${esc(l.note)}</p>`).join("")}
+    <p class="note plain">A shot's style is what the scorer wrote down about the shot ("driving", "pullup", "cutting"). It is not the play that was called, and nothing here says what the defense did.</p></div>
+  </section>` : ""}
 
   <section class="section"><h2>How it is kept honest</h2>
     <div class="cols">
@@ -185,7 +196,8 @@ async function renderTeam() {
   const lvl = Math.round(r.interval_level * 100);
   const maxAbs = Math.max(0.01, ...r.tendencies.flatMap((x) => x.interval.map(Math.abs))) * 1.08;
   const X = (v) => (150 + (v / maxAbs) * 142).toFixed(1);
-  const unit = (x) => (x.scope === "player" ? "possessions on the floor" : x.outcome.head === "shot_family" ? "shots" : "possessions");
+  const UNIT = { shot_family: "shots", action_style: "shots", creation: "made baskets", fast_break: "possessions ending in a shot or at the line" };
+  const unit = (x) => (x.scope === "player" ? "possessions on the floor" : UNIT[x.outcome.head] || "possessions");
   const versus = { league_same_situation: "the league rate", team_overall_plus_league_shift: "expected from the team's overall rate and the league-wide shift in this situation", player_overall: "his share across all situations",
     team_elsewhere_plus_league_shift: "expected from the team's rate in its other possessions and the league-wide shift in this situation",
     player_lineup_adjusted: "what his usage and the four teammates on the floor predict" };
@@ -235,11 +247,25 @@ async function loadReplay(gameId) {
   return S.replays[gameId];
 }
 
+const STYLE_PHRASE = { plain_jumper: "a jump shot", drive: "a driving shot", pullup: "a pull-up", running: "a running shot", floater: "a floater",
+  turnaround_hook: "a turnaround or hook", cut_lob: "a cut or lob finish", step_back: "a step-back", putback: "a putback", plain_finish: "a layup or dunk" };
+
+// Contract 1.3 fields on what happened; absent in older exports, where this returns "".
+function actualExtra(p) {
+  const a = p.actual, bits = [];
+  if (a.assisted) bits.push(`Assisted by ${player(a.assister_id)}.`);
+  else if (a.assisted === false) bits.push("Unassisted.");
+  if (typeof a.secs_to_first_action === "number") bits.push(`First action ${a.secs_to_first_action.toFixed(0)} s into the possession${a.tempo ? ` (${a.tempo})` : ""}.`);
+  if (a.fast_break) bits.push("Tagged a fast break by the scorer.");
+  return bits.length ? ` ${bits.join(" ")}` : "";
+}
+
 function actualText(p) {
   const a = p.actual, who = a.finisher_id ? player(a.finisher_id) : team(p.off_team_id).name;
+  const shot = STYLE_PHRASE[a.action_style] || "a shot";
   const fam = { rim: "at the rim", paint: "in the paint", midrange: "from midrange", corner3: "from the corner, for three", above_break3: "from above the break, for three", heave: "on a heave" }[a.shot_family] || "";
   const extra = `${a.n_off_reb ? ` after ${a.n_off_reb} offensive rebound${a.n_off_reb > 1 ? "s" : ""}` : ""}. ${a.points} point${a.points === 1 ? "" : "s"} on the possession.`;
-  if (a.ending_type === "shot") return `${who} ${a.shot_made ? "made" : "missed"} a shot ${fam}${a.and_one ? ", and drew the foul" : ""}${extra}`;
+  if (a.ending_type === "shot") return `${who} ${a.shot_made ? "made" : "missed"} ${shot} ${fam}${a.and_one ? ", and drew the foul" : ""}${extra}`;
   if (a.ending_type === "foul_drawn") return `${who} drew a foul and went to the line${extra}`;
   if (a.ending_type === "turnover") return `${a.finisher_id ? who + " turned it over" : "Team turnover"}${extra}`;
   if (a.ending_type === "period_end") return "The period ended before a shot, foul or turnover.";
@@ -282,12 +308,16 @@ async function renderReplay() {
   const a = p.actual, endClasses = head("ending_type").classes;
   const hit = { finisher: a.finisher_id ? p.off_lineup.indexOf(a.finisher_id) : -1, ending_type: endClasses.indexOf(a.ending_type), shot_family: a.ending_type === "shot" ? FAMS.indexOf(a.shot_family) : -1 };
   const labels = { finisher: p.off_lineup.map(player), ending_type: head("ending_type").class_labels, shot_family: head("shot_family").class_labels };
+  // Heads added after the first three (contract 1.3): shown when this export predicts them, never part of the guess.
+  const extraHeads = S.manifest.heads.filter((h) => !HEADS.includes(h.id) && p.pred && p.pred[h.id]);
+  for (const h of extraHeads) { labels[h.id] = h.class_labels; hit[h.id] = a[h.id] ? h.classes.indexOf(a[h.id]) : -1; }
   const option = (h, i, lab) => `<button data-pick="${h}" data-i="${i}" aria-pressed="${S.picks[h] === i}">${esc(lab)}</button>`;
 
   const panel = (h, extraTop = "") => {
     const hd = head(h);
     let body;
     if (!p.eligible) body = `<p class="muted">No prediction: ${esc(p.ineligible_reason)}.</p>`;
+    else if (hiding && !HEADS.includes(h)) body = `<p class="muted">Shown with the model. Not part of the guess.</p>`;
     else if (hiding) body = `<div class="opts" role="group" aria-label="Your pick: ${esc(hd.label)}">${labels[h].map((l, i) => option(h, i, l)).join("")}</div>${h === "shot_family" ? `<p class="small muted" style="margin-top:8px">Optional. Counted only if the possession ends in a shot.</p>` : ""}`;
     else body = `${extraTop}${probRows(h, labels[h], p.pred[h], hit[h], rep.split, S.guess ? S.picks[h] : undefined)}`;
     return `<div class="sheet"><h3>${esc(hd.label)}</h3>${hd.conditional_on ? `<p class="small muted" style="margin:0">If ${esc(hd.conditional_on)}.</p>` : ""}${body}</div>`;
@@ -324,12 +354,13 @@ async function renderReplay() {
       <ul class="key"><li><i class="k-model"></i>model</li><li><i class="k-base"></i>baseline</li><li><i class="k-actual"></i>what happened</li></ul>
     </div>
     ${S.guess ? tallyTable() : ""}
-    <div aria-live="polite">${hiding ? `<div class="outcome none">The outcome and the model's numbers are hidden until you pick.</div>` : `<div class="outcome${p.eligible ? "" : " none"}">${esc(actualText(p))}</div>`}</div>
+    <div aria-live="polite">${hiding ? `<div class="outcome none">The outcome and the model's numbers are hidden until you pick.</div>` : `<div class="outcome${p.eligible ? "" : " none"}">${esc(actualText(p) + actualExtra(p))}</div>`}</div>
   </div>
 
   <div class="heads">
     ${panel("finisher")}${panel("ending_type")}
     ${panel("shot_family", p.eligible && !hiding ? court(p.pred.shot_family.model, a.ending_type === "shot" ? a.shot_family : null, "Model probability by shot zone") : "")}
+    ${extraHeads.map((h) => panel(h.id)).join("")}
   </div>
   ${hiding ? `<p style="margin-top:16px"><button class="btn primary" id="reveal2" ${canReveal ? "" : "disabled"}>Show the model</button> <span class="small muted">${canReveal ? "" : "Pick a finisher and an ending first."}</span></p>` : ""}`;
 
@@ -408,7 +439,7 @@ function renderScorecard() {
   <h2 class="lookback">Looking back</h2>
   <p class="muted" style="margin-top:0">Retrospective: held-out games and a held-out season, scored after the fact.</p>
   ${sc.heads.map((h) => `<div class="sheet"><h2 style="margin-bottom:4px">${esc(head(h.head).label)}</h2>
-    <p class="small muted">Baseline: ${esc(head(h.head).baseline)}.${head(h.head).conditional_on ? ` Scored only when ${esc(head(h.head).conditional_on)}.` : ""}</p>
+    <p class="small muted">Baseline: ${esc(head(h.head).baseline)}.${head(h.head).conditional_on ? ` Scored only when ${esc(head(h.head).conditional_on)}.` : ""}${head(h.head).logged_before_tipoff === false ? " Not part of the pregame log: these results are looking back only." : ""}</p>
     ${h.splits.map((s) => block(h, s)).join("")}</div>`).join("")}
   <p class="note plain">Intervals: ${esc(sc.bootstrap)}. Calibration pools every class: each dot is a band of predicted probabilities and how often those calls came true.</p>
   ${tendencyCheck()}`;

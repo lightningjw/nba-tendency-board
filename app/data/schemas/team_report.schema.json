@@ -132,7 +132,11 @@
                 "enum": [
                   "finisher",
                   "ending_type",
-                  "shot_family"
+                  "shot_family",
+                  "action_style",
+                  "creation",
+                  "tempo",
+                  "fast_break"
                 ]
               },
               "class": {

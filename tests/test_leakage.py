@@ -13,8 +13,8 @@ from tendency import features as ft
 from tendency.features import Features, build_features
 from tendency.leakcheck import ingame_leaks, pregame_leaks
 
-PRE_POSS, PRE_CAND = ft.PREGAME_POSS, ft.PREGAME_CAND
-IN_POSS, IN_CAND = ft.INGAME_POSS, ft.INGAME_CAND
+PRE_POSS, PRE_CAND = ft.PREGAME_POSS_ALL, ft.PREGAME_CAND          # every head's features, the step 2.2 ones included
+IN_POSS, IN_CAND = ft.INGAME_POSS_ALL, ft.INGAME_CAND
 
 
 def _games(poss):

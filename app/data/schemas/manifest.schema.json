@@ -5,7 +5,7 @@
   "additionalProperties": false,
   "required": ["contract_version", "generated_at", "data_kind", "notice", "coverage", "heads", "splits", "tendency_method", "quality", "field_names_verified", "not_built", "files"],
   "properties": {
-    "contract_version": {"enum": ["1.0", "1.1", "1.2"]},
+    "contract_version": {"enum": ["1.0", "1.1", "1.2", "1.3"]},
     "generated_at": {"type": "string"},
     "data_kind": {"enum": ["synthetic", "real"]},
     "notice": {"type": "string"},
@@ -25,13 +25,14 @@
     "heads": {
       "type": "array",
       "minItems": 3,
-      "maxItems": 3,
+      "maxItems": 5,
       "items": {
         "type": "object",
         "additionalProperties": false,
         "required": ["id", "label", "classes", "class_labels", "conditional_on", "baseline"],
         "properties": {
-          "id": {"enum": ["finisher", "ending_type", "shot_family"]},
+          "id": {"enum": ["finisher", "ending_type", "shot_family", "action_style", "tempo"]},
+          "logged_before_tipoff": {"type": "boolean"},
           "label": {"type": "string"},
           "classes": {"type": ["array", "null"], "items": {"type": "string"}},
           "class_labels": {"type": ["array", "null"], "items": {"type": "string"}},
@@ -73,6 +74,24 @@
         "n_anomalous_possessions": {"type": "integer", "minimum": 0},
         "n_heaves": {"type": "integer", "minimum": 0},
         "n_period_end": {"type": "integer", "minimum": 0}
+      }
+    },
+    "labels": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label", "source", "defined_when", "n_defined", "n_possessions", "coverage", "note"],
+        "properties": {
+          "id": {"type": "string"},
+          "label": {"type": "string"},
+          "source": {"type": "string"},
+          "defined_when": {"type": "string"},
+          "n_defined": {"type": "integer", "minimum": 0},
+          "n_possessions": {"type": "integer", "minimum": 0},
+          "coverage": {"type": "number", "minimum": 0, "maximum": 1},
+          "note": {"type": ["string", "null"]}
+        }
       }
     },
     "field_names_verified": {"type": "boolean"},

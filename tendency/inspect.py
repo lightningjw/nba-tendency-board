@@ -129,6 +129,15 @@ def inspect_game(game_id: str, root: Path, only_odd: bool = False) -> tuple[str,
             flags.append("penalty")
         if 0 < r["n_off_reb"] < ODD_OFF_REB:
             flags.append(f"{r['n_off_reb']}-oreb")
+        # step 2.2 labels, so they can be read against the raw actions too
+        if r.get("action_style"):
+            flags.append(r["action_style"] + ("+ast" if r.get("assisted") else ""))
+        if r.get("secs_to_first_action") is not None:
+            flags.append(f"{r['secs_to_first_action']:.0f}s" + (f"/{r['tempo']}" if r.get("tempo") else ""))
+        if r.get("fast_break"):
+            flags.append("fast-break")
+        if r.get("two_for_one_window"):
+            flags.append("2for1-" + ("taken" if r.get("two_for_one_taken") else "passed" if r.get("two_for_one_taken") is False else "window"))
         if not only_odd or odd_flags(r):
             if r["period"] != period:
                 period = r["period"]

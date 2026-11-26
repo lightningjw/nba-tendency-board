@@ -29,7 +29,8 @@ import numpy as np
 import pandas as pd
 from scipy.stats import beta
 
-from .possessions import ENDING_CLASSES, SHOT_FAMILIES
+from . import cdn_fields as F
+from .possessions import ACTION_STYLES, ENDING_CLASSES, SHOT_FAMILIES
 
 METHOD = {"id": "eb_beta_binomial_shrinkage", "label": "Simple shrinkage estimate (empirical Bayes, beta-binomial)", "final": False}
 INTERVAL_LEVEL = 0.90
@@ -47,14 +48,61 @@ SITUATIONS = [
     ("start_made_basket", "After an opponent score"),
     ("def_in_penalty", "Defense in the penalty"),
     ("q4", "Fourth quarter"),
+    ("two_for_one", "Two-for-one window (30 to 45 s left in the period)"),
 ]
 END_LABEL = {"shot": "Possessions ending in a shot", "foul_drawn": "Possessions ending in a foul drawn", "turnover": "Possessions ending in a turnover"}
 FAM_LABEL = {"rim": "Rim share of shots", "paint": "Paint (non-rim) share of shots", "midrange": "Midrange share of shots",
              "corner3": "Corner-three share of shots", "above_break3": "Above-the-break-three share of shots"}
+STYLE_LABEL = {c: f"{lab} share of shots" for c, lab in zip(F.ACTION_STYLES, F.ACTION_STYLE_LABELS)}
+TEMPO_LABEL = {"early": f"Early share of possessions (first action within {F.TEMPO_EARLY_MAX_S:.0f} s)",
+               "late": f"Late share of possessions (first action after {F.TEMPO_LATE_MIN_S:.0f} s or more)"}
+
+
+# These two situations are read just before the deciding event, so a timeout or foul in the MIDDLE of a
+# possession sets them, and a possession interrupted that way is late by construction. No tempo rows there.
+MID_POSSESSION_SITUATIONS = {"after_timeout", "def_in_penalty"}
+
+
+def allowed(sid: str, head: str) -> bool:
+    """Is (situation, outcome family) a cell worth estimating? Shared by the stand-in, the layer and the validation."""
+    return not (head == "tempo" and sid in MID_POSSESSION_SITUATIONS)
+
+
+def _flag(df: pd.DataFrame, col: str) -> tuple[np.ndarray, np.ndarray]:
+    """(is true, is defined) for a true / false / not-defined column."""
+    s = df[col]
+    return s.fillna(False).astype(bool).values, s.notna().values
+
+
+def outcome_specs(df: pd.DataFrame) -> list[tuple]:
+    """Every team-scope outcome a tendency can be about: (head, class, hit mask, denominator mask, label).
+
+    Shared by the stand-in and the tendency layer so both estimate the same cells. The step 2.2
+    outcomes are added only when the table carries their columns.
+    """
+    n = len(df)
+    is_shot = df["ending_type"].values == "shot"
+    specs = [("ending_type", c, df["ending_type"].values == c, np.ones(n, bool), END_LABEL[c]) for c in ENDING_CLASSES]
+    specs += [("shot_family", c, df["shot_family"].values == c, is_shot, FAM_LABEL[c]) for c in SHOT_FAMILIES]
+    if "action_style" in df.columns:
+        styled = df["action_style"].notna().values
+        specs += [("action_style", c, df["action_style"].values == c, styled, STYLE_LABEL[c]) for c in ACTION_STYLES]
+    if "assisted" in df.columns:
+        hit, defined = _flag(df, "assisted")
+        specs.append(("creation", "assisted", hit, defined, "Assisted share of made baskets"))
+    if "tempo" in df.columns:
+        timed = df["tempo"].notna().values
+        specs += [("tempo", c, df["tempo"].values == c, timed, TEMPO_LABEL[c]) for c in ("early", "late")]
+    if "fast_break" in df.columns:
+        hit, defined = _flag(df, "fast_break")
+        specs.append(("fast_break", "fast_break", hit, defined, "Fast-break share of possessions ending in a shot or at the line"))
+    return specs
 
 
 def situation_masks(df: pd.DataFrame) -> dict[str, np.ndarray]:
+    window = df["two_for_one_window"].values.astype(bool) if "two_for_one_window" in df.columns else np.zeros(len(df), bool)
     return {
+        "two_for_one": window,
         "all": np.ones(len(df), dtype=bool),
         "after_timeout": df["after_timeout"].values.astype(bool),
         "clutch": ((df["period"] >= 4) & (df["start_clock_s"] <= 300) & (df["margin_start"].abs() <= 5)).values,
@@ -105,14 +153,14 @@ def team_reports(poss: pd.DataFrame, player_names: dict[int, str], top_k: int | 
     team_arr = df["off_team_id"].values
     out: dict[int, list[dict]] = {t: [] for t in teams}
 
-    specs = [("ending_type", c, df["ending_type"].values == c, np.ones(len(df), bool), END_LABEL[c]) for c in ENDING_CLASSES]
-    is_shot = df["ending_type"].values == "shot"
-    specs += [("shot_family", c, df["shot_family"].values == c, is_shot, FAM_LABEL[c]) for c in SHOT_FAMILIES]
+    specs = outcome_specs(df)
 
     all_mask = masks["all"]
     for sit in SITUATIONS:
         sm = masks[sit[0]]
         for head, cls, hit, denom, label in specs:
+            if not allowed(sit[0], head):
+                continue
             d = sm & denom
             n_all, k_all = int(d.sum()), int((d & hit).sum())
             if n_all < MIN_N or k_all in (0, n_all):

@@ -62,9 +62,9 @@ class Game:
     def foul(self, clk, team, pid, drawn=None, sub="personal", descriptor=""):
         return self.ev("foul", clk, sub, team, pid, descriptor=descriptor, **({F.FOUL_DRAWN_PERSON_ID: drawn} if drawn else {}))
 
-    def ft(self, clk, team, pid, k, n, made, technical=False):
+    def ft(self, clk, team, pid, k, n, made, technical=False, **kw):
         return self.ev("freethrow", clk, f"{k} of {n}", team, pid, shotResult="Made" if made else "Missed", pts=1 if made else 0,
-                       descriptor="technical" if technical else "")
+                       descriptor="technical" if technical else "", **kw)
 
     def sub(self, clk, team, out_pid, in_pid):
         return self.ev("substitution", clk, "out", team, out_pid).ev("substitution", clk, "in", team, in_pid)

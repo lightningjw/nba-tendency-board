@@ -31,7 +31,7 @@
     "heads": {
       "type": "array",
       "minItems": 3,
-      "maxItems": 3,
+      "maxItems": 5,
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -44,7 +44,9 @@
             "enum": [
               "finisher",
               "ending_type",
-              "shot_family"
+              "shot_family",
+              "action_style",
+              "tempo"
             ]
           },
           "splits": {

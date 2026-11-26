@@ -37,8 +37,8 @@ from scipy.optimize import minimize_scalar
 from scipy.special import expit, logit
 from scipy.stats import norm
 
-from .possessions import ENDING_CLASSES, SHOT_FAMILIES
-from .tendencies import END_LABEL, FAM_LABEL, SITUATIONS, situation_masks
+from .possessions import ENDING_CLASSES
+from .tendencies import SITUATIONS, allowed, outcome_specs, situation_masks
 
 METHOD = {"id": "eb_hierarchical_logit", "label": "Partial pooling across teams, situations and players (empirical Bayes, hierarchical logit)",
           "final": True}                 # final because the half-season validation supports it; see DECISIONS.md 86-87
@@ -133,12 +133,6 @@ def _eligible(poss: pd.DataFrame) -> pd.DataFrame:
     return poss[poss["ending_type"].isin(ENDING_CLASSES) & ~poss["is_heave"]].reset_index(drop=True)
 
 
-def _specs(df: pd.DataFrame) -> list[tuple]:
-    is_shot = df["ending_type"].values == "shot"
-    specs = [("ending_type", c, df["ending_type"].values == c, np.ones(len(df), bool), END_LABEL[c]) for c in ENDING_CLASSES]
-    return specs + [("shot_family", c, df["shot_family"].values == c, is_shot, FAM_LABEL[c]) for c in SHOT_FAMILIES]
-
-
 def _on_floor(df: pd.DataFrame) -> tuple[pd.DataFrame, np.ndarray, np.ndarray]:
     """Possessions usable for player rows (five known players, the finisher one of them), their lineups and who finished."""
     ok = df[df["lineup_ok"] & df["finisher_id"].notna()].reset_index(drop=True)
@@ -160,7 +154,9 @@ def cell_counts(poss: pd.DataFrame) -> pd.DataFrame:
     game, team = df["game_id"].values, df["off_team_id"].values
     frames = []
     for sid, _ in SITUATIONS:
-        for head, cls, hit, denom, _ in _specs(df):
+        for head, cls, hit, denom, _ in outcome_specs(df):
+            if not allowed(sid, head):
+                continue
             d = masks[sid] & denom
             g = pd.DataFrame({"game_id": game[d], "team_id": team[d], "k": hit[d].astype(np.int64)}).groupby(["game_id", "team_id"], sort=False)["k"].agg(["sum", "size"]).reset_index()
             frames.append(pd.DataFrame({"game_id": g["game_id"].values, "key": [cell_key(t, "team", None, sid, head, cls) for t in g["team_id"]],
@@ -189,7 +185,7 @@ def candidates(poss: pd.DataFrame) -> pd.DataFrame:
     team = df["off_team_id"].values
     teams = np.array(sorted(np.unique(team)))
     t_idx = np.searchsorted(teams, team)
-    specs = _specs(df)
+    specs = outcome_specs(df)
 
     def by_team(m: np.ndarray) -> np.ndarray:
         return np.bincount(t_idx[m], minlength=len(teams)).astype(float)
@@ -198,6 +194,8 @@ def candidates(poss: pd.DataFrame) -> pd.DataFrame:
     for sid, slabel in SITUATIONS:
         sm = masks[sid]
         for head, cls, hit, denom, label in specs:
+            if not allowed(sid, head):
+                continue
             d_in, d_out = sm & denom, ~sm & denom
             n_in, k_in = by_team(d_in), by_team(d_in & hit)
             if sid == "all":
@@ -336,15 +334,25 @@ def estimate_drift(poss: pd.DataFrame, interleave: bool = False) -> dict:
 
 
 def _to_row(c, player_names: dict[int, str]) -> dict:
+    return _row_and_z(c, player_names)[0]
+
+
+def _row_and_z(c, player_names: dict[int, str]) -> tuple[dict, float]:
+    """The report row, and how many posterior sds the deviation clears the threshold by.
+
+    The second number orders rows exactly as the probability does, but does not run out of digits:
+    after a full season dozens of rows have a probability that rounds to 1.0000.
+    """
     r = float(expit(c.base_logit))
     at = c.base_logit + c.dev_logit
     p = float(expit(at))
     lo, hi = float(expit(at - Z * c.dev_sd)) - r, float(expit(at + Z * c.dev_sd)) - r
     dev = p - r
     if dev >= 0:
-        prob = float(norm.sf((logit(min(r + THRESHOLD, 1 - 1e-6)) - at) / c.dev_sd))
+        z = float((at - logit(min(r + THRESHOLD, 1 - 1e-6))) / c.dev_sd)
     else:
-        prob = float(norm.cdf((logit(max(r - THRESHOLD, 1e-6)) - at) / c.dev_sd))
+        z = float((logit(max(r - THRESHOLD, 1e-6)) - at) / c.dev_sd)
+    prob = float(norm.cdf(z))
     label = c.label if c.scope == "team" else f"{player_names.get(int(c.player_id), str(int(c.player_id)))}: share of finishes while on the floor"
     return {
         "id": f"{c.scope}:{int(c.player_id) if c.scope == 'player' else 0}:{c.sid}:{c.head}:{c.cls if isinstance(c.cls, str) else None}", "scope": c.scope,
@@ -354,16 +362,16 @@ def _to_row(c, player_names: dict[int, str]) -> dict:
         "interval": [round(lo, 4), round(hi, 4)], "n": int(c.n), "k": int(c.k),
         "prior_strength": round(float(1.0 / (c.tau2 * r * (1 - r))), 1),     # the prior's weight, in possessions at this baseline
         "rank_score": round(prob, 4), "prob_beyond": round(prob, 4), "excludes_zero": bool(lo > 0 or hi < 0),
-    }
+    }, z
 
 
 def all_rows(poss: pd.DataFrame, player_names: dict[int, str], drift: dict | None = None) -> dict[int, list[dict]]:
     """{team_id: every candidate row, best first}."""
     est = estimate(candidates(poss), drift)
-    out: dict[int, list[dict]] = {}
+    out: dict[int, list[tuple]] = {}
     for c in est.itertuples():
-        out.setdefault(int(c.team_id), []).append(_to_row(c, player_names))
-    return {t: sorted(rows, key=lambda x: (-x["rank_score"], x["id"])) for t, rows in out.items()}
+        out.setdefault(int(c.team_id), []).append(_row_and_z(c, player_names))
+    return {t: [row for row, _ in sorted(rows, key=lambda x: (-x[1], x[0]["id"]))] for t, rows in out.items()}
 
 
 def team_reports(poss: pd.DataFrame, player_names: dict[int, str], top_k: int | None = TOP_K, drift: dict | None = None) -> dict[int, dict]:

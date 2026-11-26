@@ -347,3 +347,102 @@ from 1,000 resamples of whole second-half games.
      lineups barely overlap that is too small (a hand-built world showed it; real seasons did not). A group whose
      estimated spread is zero gets intervals a fraction of a point wide; those rows rank last and are never
      shown. Drift is a half-season number applied to reports of any age.
+
+## Step 2.2, Phase 2 labels from play-by-play (2026-11-23)
+
+Head results below are from three seasons only (2023-24 to 2025-26, `data/real3`), the same footing as the README
+table: trained on 1,968 games, held out late 2024-25 (492 games) and all of 2025-26 (1,230 games).
+
+### Asked before building, as the step says
+110. **The action-style mapping was shown to the owner before it was wired in, and the ten-style version was
+     chosen** over a coarser seven and a finer twelve. It lives in `cdn_fields.ACTION_STYLE_RULES`: ordered rules
+     on the words in `descriptor`, then the shot `subType`. All 50 (subType, descriptor) pairs seen in three
+     seasons are pinned to their style by a test.
+111. **The two heads were the owner's choice too: action style and tempo.** An "assisted or not" head was offered
+     and declined: the feed credits an assist only on a make, so it would be conditional on an outcome.
+
+### Labels
+112. **A style is the scorer's description of the shot, not a play.** `cut_lob` means the shot was a cutting layup
+     or an alley-oop. The names, the app copy and the docstrings all say so.
+113. **Every attempt gets a style, including the 32% with no descriptor.** Two "plain" classes instead of an
+     "unknown": a jump shot with no move noted is 94% threes and 97% of its makes are assisted, which is information.
+114. **Creation is defined on made baskets only** (41.8% of possessions). `assister_id` is on the table; nothing
+     reads it yet, so there are no passer-to-shooter rows in this step.
+115. **Tempo is seconds from the start of the possession to its first shot, turnover or trip to the line.** An
+     offensive rebound does not restart it. Early is 8 seconds or less, late is 16 or more (27% / 38% / 35%).
+     It uses the period clock because the feed has no shot clock, and is defined only when at least 24 seconds
+     were left at the start (96.4% of possessions).
+116. **The live feed's rebound clocks are corrected for the tempo labels only** (ASSUMPTIONS.md 15). Games whose
+     defensive rebounds share the missed shot's clock are detected one by one, and in those a possession that
+     starts off a rebound is taken to begin 3 seconds later. `start_clock_s` is left alone: the frozen model was
+     trained on it as the feed gives it.
+117. **Fast break is the scorer's tag and nothing more.** Defined when the possession ends in a shot or at the
+     line (84.6%). The sibling tags, second-chance and from-turnover, are not stored because the pipeline already
+     derives both; they are used as a check instead and agree on 99.6% and 99.99% of 368,467 tagged possessions.
+118. **Two-for-one is a situation plus a label.** The window (30 to 45 seconds left at the start) is known when
+     the possession begins, so it is a context feature and a team-report situation. "Taken" (first action with
+     27 or more left) is the outcome inside it. Thresholds are judgment calls, in `cdn_fields.py`.
+
+### Heads
+119. **The two new heads are not in the pregame log.** `models.HEADS` is still the three a frozen model carries;
+     `EXTRA_HEADS` are fitted and scored by `run_models` only. The model frozen on 2026-11-20 keeps scoring, and a
+     test pins the three logged heads' feature lists column by column. The app says "looking back only".
+120. **Action style's baseline knows who is on the floor and how the possession started.** The first version was
+     the lineup's usage-weighted style mix alone, and the model beat it by 0.0856. Before believing that I scored
+     a baseline that also shifts the mix by the league's start-type effect: it recovered 85% of the gap. That is
+     the same weakness the README already admits for shot location, so the tougher one became the baseline.
+     Result: 1.9744 against 1.9878 on 2025-26, difference -0.0133 (-0.0141 to -0.0126); 1.9838 against 1.9977 on
+     late 2024-25, -0.0139 (-0.0151 to -0.0128). Top pick right 29.9% against 29.7%. It beats its baseline and
+     ships; the lift is small.
+121. **Tempo's baseline is the team's early / middle / late mix on possessions that started the same way**,
+     shrunk toward the league's by 100 pseudo-possessions. Without the start type the model would win by knowing
+     the ball came off a turnover.
+122. **The tempo head sees only what was known when the possession started.** Context is normally read just
+     before the deciding event (decision 11), which is right for "what happens next". For "when does it happen"
+     it is a leak by construction: a timeout, a foul or a substitution in the middle of a possession says time
+     has passed (late share is 57% after a timeout against 34% otherwise). With that context the lift was
+     -0.0295; without it, and without the lineup features, it is -0.0228 (-0.0239 to -0.0217) on 2025-26 and
+     -0.0259 (-0.0276 to -0.0242) on late 2024-25. Top pick right 52.2% against 50.5%. The smaller number ships.
+123. **The older heads keep their context as it was.** Predicting what happens next from the moment before it
+     is what they were built and logged to do.
+124. **Leakage tests cover the new features and have teeth for the new labels**: scrambling now rewrites style
+     and tempo, the standard pregame and in-game checks run over every new column, and two tests feed the guard
+     a feature built from the possession's own style or tempo and require it to be caught.
+
+### Team reports
+125. **Four outcome families and one situation were added**: style share of shots (ten rows), assisted share of
+     made baskets, early and late share, fast-break share; and the two-for-one window. A team has 301 to 391
+     candidate rows on a full season, and 215 to 285 sixteen games into 2026-27 where it had 115 to 154 before
+     this step. The stand-in was given the same outcomes so the half-season validation still scores every
+     method on the same cells.
+126. **No tempo rows in "after a timeout" or "defense in the penalty".** Both flags are read mid-possession,
+     so a late first action there is partly arithmetic.
+127. **The validation was rerun on the larger cell set and the 2.1 decision holds, with one number worse.**
+     2025-26: 5,815 team cells level with the stand-in, +0.000003 (-0.000003 to +0.000009); 2,644 player cells
+     ahead, -0.000740 (-0.000837 to -0.000650); coverage with drift 0.900 and 0.898. But for the top ten rows a
+     report would show, 90% intervals held 87.0% with drift (293 rows; 87.7% on 2024-25), down from 90.5% when
+     there were about half as many candidates to pick from. The stand-in as exported: 61.9%; with drift added,
+     86.2%. Picking ten from twice as many rows is harder on an interval, and nothing here corrects for it. The
+     README says 87.0%.
+128. **PyMC rerun on the larger set: still not worth a sampler.** 70 seconds now (17,695 parameters, r-hat 1.009,
+     no divergences). 2025-26: team cells -0.000005 (-0.000011 to +0.000000), player cells -0.000602 against the
+     fast fit's -0.000740. 2024-25: team cells -0.000013 (-0.000019 to -0.000008), clear of zero for the first
+     time, player cells -0.000468 against -0.000515. Summed over all trials the fast fit is ahead on 2025-26 and
+     the two are even on 2024-25.
+129. **Rows are ordered by how many posterior standard deviations the deviation clears the threshold by**, which
+     ranks exactly as the probability does but does not saturate. After a full season dozens of rows show
+     "100% likely", and the old tie-break was the row id.
+130. **On a full season most of a team's top ten are "all possessions" rows** (how its style or tempo mix differs
+     from the league's), because those have the most data. I did not add a rule to mix in situational rows.
+
+### Contract, app, sample
+131. **Contract 1.3.** Manifest: three to five heads, `logged_before_tipoff` on each, and a `labels` list with
+     each label's source, when it is defined, and its share of possessions. Scorecard: up to five heads.
+     Replay: step 2.2 fields on `actual`, two more entries in `pred`. Team report: four more outcome families.
+     All additions are optional; 1.0 to 1.2 exports validate and render.
+132. **The replay shows the two new heads but the guess mode still asks about three.** Picking one of ten shot
+     styles before every possession is a chore, not a game.
+133. **The simulator writes descriptors, assists that depend on the shot, scorer tags and a pace per team**, plus
+     one planted style quirk (a team that triples its pull-ups in the fourth quarter) that a test recovers. Pace
+     is drawn after everything else so the eight teams are the ones the older tests know.
+134. **`inspect` prints the new labels beside each possession**, so they can be read against the raw actions.

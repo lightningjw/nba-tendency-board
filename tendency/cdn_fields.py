@@ -100,6 +100,44 @@ AREA_TO_FAMILY = {
     "backcourt": "above_break3",     # heave rule handles the end-of-period ones
 }
 
+# --- play-by-play: shot `descriptor` and `subType` -> action style -----------------
+# Profiled on 657,380 field-goal attempts, 2023-24 to 2025-26 (31 descriptor values, 4 subTypes), and on
+# 42,347 from the 2026-27 live feed (same values). A style describes the SHOT the scorer saw. It is not a
+# play call: "cut_lob" says the shot was a cutting layup or an alley-oop, not what set was run to get it.
+# Rules are tried in order and the first that matches wins; a rule matches when the lower-cased descriptor
+# contains any of its words, or (for the rules with no words) on the subType alone. Every attempt gets one.
+#   style              share   what falls in it
+#   plain_jumper       29.2%   Jump Shot with no descriptor (or only "bank"): 94% threes, 97% of makes assisted
+#   drive              14.7%   driving layup, dunk, hook, finger roll, reverse, bank
+#   pullup             13.3%   pullup, running pullup
+#   running             8.8%   running layup, dunk, jump shot, finger roll, reverse
+#   floater             8.7%   floating, driving floating
+#   turnaround_hook     6.8%   any hook that is not driving; turnaround and fadeaway jump shots
+#   cut_lob             5.7%   cutting, alley-oop, running alley-oop
+#   step_back           5.3%   step back
+#   putback             4.5%   tip, putback
+#   plain_finish        3.1%   layup or dunk with no movement word (none, reverse, finger roll)
+SHOT_SUBTYPE_JUMP = "jump shot"
+SHOT_SUBTYPE_HOOK = "hook"
+ACTION_STYLE_RULES = [               # (style, descriptor words); order matters
+    ("putback", ("tip", "putback")),
+    ("cut_lob", ("cutting", "alley-oop")),
+    ("floater", ("floating",)),
+    ("drive", ("driving",)),
+    ("pullup", ("pullup",)),
+    ("step_back", ("step back",)),
+    ("turnaround_hook", ("turnaround", "fadeaway")),
+]
+ACTION_STYLE_RUNNING = "running"     # after the rules above: "running" with no pullup / alley-oop
+ACTION_STYLES = ["plain_jumper", "drive", "pullup", "running", "floater", "turnaround_hook", "cut_lob", "step_back", "putback", "plain_finish"]
+ACTION_STYLE_LABELS = ["Jump shot, no move noted", "Drive", "Pull-up", "Running", "Floater", "Turnaround or hook", "Cut or lob",
+                       "Step-back", "Putback or tip", "Layup or dunk, no move noted"]
+
+# --- play-by-play: `qualifiers` the scorer adds to shots and free throws ------------------
+Q_FAST_BREAK = "fastbreak"
+Q_SECOND_CHANCE = "2ndchance"
+Q_FROM_TURNOVER = "fromturnover"
+
 # --- boxscore -----------------------------------------------------------------
 BOX_GAME_TIME_UTC = "gameTimeUTC"
 BOX_HOME = "homeTeam"
@@ -136,6 +174,23 @@ CORNER3_MAX_Y = 89.5                 # corner threes end where the line starts t
 PAINT_HALF_WIDTH = 80.0              # lane is 16 ft wide
 PAINT_MAX_Y = 137.5                  # free-throw line, measured from the hoop
 HEAVE_MIN_DISTANCE_FT = 40.0
+# Tempo: seconds from the start of the possession to its FIRST shot, turnover or trip to the line. The feed
+# has no shot clock, so this is the period clock, and after a made basket it includes the inbound.
+SHOT_CLOCK_S = 24.0                  # tempo is only defined when the period had at least this much left at the start
+TEMPO_EARLY_MAX_S = 8.0              # "early": the first action came within this many seconds
+TEMPO_LATE_MIN_S = 16.0              # "late": it came at or after this many
+TEMPO_CLASSES = ["early", "middle", "late"]
+# The live CDN feed stamps a defensive rebound with the missed shot's clock (7,130 of 7,130 in 120 games of
+# 2026-27); the season archives stamp it when the ball was secured (median 3 s later, same clock in 6%). A
+# possession that starts off such a rebound would look that much slower. When a game's rebounds are untimed,
+# the tempo labels (and only they) start the possession this many seconds after the rebound's clock.
+UNTIMED_REBOUND_LAG_S = 3.0
+UNTIMED_REBOUND_MIN_SHARE = 0.9      # a game counts as untimed when this share of its defensive rebounds match the shot's clock
+UNTIMED_REBOUND_MIN_N = 10
+# Two-for-one: getting the ball with this much left in a period means a quick shot buys a second possession.
+TWO_FOR_ONE_MIN_START_S = 30.0       # window is (min, max] seconds left when the possession starts
+TWO_FOR_ONE_MAX_START_S = 45.0
+TWO_FOR_ONE_SHOOT_BY_S = 27.0        # "took it": the first action came with at least this much left
 SYNTHETIC_MARKER = "_synthetic"      # top-level key our generator writes; never in real data
 
 

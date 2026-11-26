@@ -142,7 +142,7 @@ def test_replays_are_held_out_games_with_normalised_probabilities(synth_run):
 
 def test_scorecard_has_both_splits_per_head_with_sample_sizes(synth_run):
     sc = json.loads((synth_run["out"] / "scorecard.json").read_text())
-    assert [h["head"] for h in sc["heads"]] == ["finisher", "ending_type", "shot_family"]
+    assert [h["head"] for h in sc["heads"]][:3] == ["finisher", "ending_type", "shot_family"]      # tests/test_labels.py covers the two added in step 2.2
     for h in sc["heads"]:
         assert [s["split"] for s in h["splits"]] == ["holdout_games", "holdout_season"]
         for s in h["splits"]:

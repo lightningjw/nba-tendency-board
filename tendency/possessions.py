@@ -27,6 +27,20 @@ Rules (each has a test in tests/test_possessions.py):
 
 Context columns (lineups, team fouls, timeouts) are snapshotted just BEFORE the
 event that decides the label, so they only hold information available at that time.
+
+Phase 2 labels (step 2.2). All of these describe how the possession went, so all are OUTCOMES: they
+may be predicted or counted, never fed back as a feature of the same possession.
+
+* `action_style`: what kind of shot ended it, from the feed's descriptor and subType (mapping in
+  cdn_fields.py). Defined when the possession ends in a shot that is not a heave.
+* `assisted`, `assister_id`: the feed credits an assist only on a made basket, so these exist only then.
+* `first_action_clock_s`, `secs_to_first_action`, `tempo`: time from the start of the possession to its
+  FIRST shot, turnover or trip to the line (an offensive rebound does not restart it). `tempo` is early,
+  middle or late, and is defined only when the period had a full shot clock left at the start.
+* `fast_break`: the scorer's `fastbreak` tag on the deciding shot or its free throws. Added after the
+  fact by a person; defined when the possession ends in a shot or at the line (turnovers carry no tag).
+* `two_for_one_window` is a SITUATION (known at the start: 30 to 45 seconds left in the period);
+  `two_for_one_taken` is the label inside it (the first action came with 27 seconds or more left).
 """
 from __future__ import annotations
 
@@ -38,6 +52,8 @@ from . import cdn_fields as F
 ENDING_CLASSES = ["shot", "foul_drawn", "turnover"]
 SHOT_FAMILIES = ["rim", "paint", "midrange", "corner3", "above_break3"]
 START_TYPES = ["period_start", "made_basket", "def_rebound", "turnover", "free_throw", "other"]
+ACTION_STYLES = F.ACTION_STYLES
+TEMPO_CLASSES = F.TEMPO_CLASSES
 
 _CLOCK_RE = re.compile(r"^PT(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?$")
 _FT_RE = re.compile(F.FT_TRIP_PATTERN)
@@ -172,6 +188,45 @@ def shot_family(a: dict) -> str | None:
     return None
 
 
+def action_style(a: dict) -> str:
+    """The shot's style from its descriptor and subType. Every field-goal attempt gets exactly one (cdn_fields.ACTION_STYLE_RULES)."""
+    desc, sub = _low(a, F.DESCRIPTOR), _low(a, F.SUB_TYPE)
+    for style, words in F.ACTION_STYLE_RULES:
+        if any(w in desc for w in words):
+            return style
+    if sub == F.SHOT_SUBTYPE_HOOK:
+        return "turnaround_hook"
+    if F.ACTION_STYLE_RUNNING in desc:
+        return "running"
+    return "plain_jumper" if sub == F.SHOT_SUBTYPE_JUMP else "plain_finish"
+
+
+def tempo_class(start_clock_s: float, first_action_clock_s: float | None) -> str | None:
+    """early / middle / late, or None when there was no first action or less than a shot clock left at the start."""
+    if first_action_clock_s is None or start_clock_s < F.SHOT_CLOCK_S:
+        return None
+    secs = start_clock_s - first_action_clock_s
+    return "early" if secs <= F.TEMPO_EARLY_MAX_S else ("late" if secs >= F.TEMPO_LATE_MIN_S else "middle")
+
+
+def _tags(a: dict) -> set[str]:
+    q = a.get(F.QUALIFIERS)
+    if isinstance(q, str):                                  # the CSV mirror joins them with ", "
+        q = q.split(",")
+    return {str(x).strip().lower() for x in q} if isinstance(q, (list, tuple)) else set()
+
+
+def untimed_rebounds(actions: list[dict]) -> bool:
+    """Does this game stamp defensive rebounds with the missed shot's clock (the live feed) instead of their own (the archives)?"""
+    same = n = 0
+    for prev, a in zip(actions, actions[1:]):
+        if (_low(a, F.ACTION_TYPE) == F.T_REBOUND and _low(a, F.SUB_TYPE) == F.ST_REBOUND_DEFENSIVE
+                and _low(prev, F.ACTION_TYPE) in (F.T_2PT, F.T_3PT) and prev.get(F.PERIOD) == a.get(F.PERIOD)):
+            n += 1
+            same += int(prev.get(F.CLOCK) == a.get(F.CLOCK))
+    return n >= F.UNTIMED_REBOUND_MIN_N and same >= F.UNTIMED_REBOUND_MIN_SHARE * n
+
+
 def is_heave(a: dict, clock_s: float) -> bool:
     if clock_s > F.HEAVE_MAX_CLOCK_S:
         return False
@@ -275,7 +330,8 @@ def segment_game(pbp: dict, box: dict) -> tuple[list[dict], dict]:
 
     pending_tech = {home: 0, away: 0}                        # technical FT points made between periods
     rows: list[dict] = []
-    stats = {"anomalies": 0, "lineup_repairs": 0, "unknown_action_types": set(), "penalty_checks": 0, "penalty_agree": 0}
+    stats = {"anomalies": 0, "lineup_repairs": 0, "unknown_action_types": set(), "penalty_checks": 0, "penalty_agree": 0,
+             "tag_checks": 0, "second_chance_agree": 0, "from_turnover_agree": 0}
     cur: dict | None = None
     period = 0
 
@@ -298,7 +354,7 @@ def segment_game(pbp: dict, box: dict) -> tuple[list[dict], dict]:
             "def_timeouts_used": timeouts_used[d] if d else 0,
         }
 
-    def new_poss(off: int | None, clock_s: float, start_type: str) -> dict:
+    def new_poss(off: int | None, clock_s: float, start_type: str, lag: float = 0.0) -> dict:
         carry = dict(pending_tech)
         pending_tech[home] = pending_tech[away] = 0
         return {
@@ -307,7 +363,13 @@ def segment_game(pbp: dict, box: dict) -> tuple[list[dict], dict]:
             "after_timeout": False, "n_off_reb": 0, "points": 0, "and_one": False,
             "tech": carry, "rebounded_label": None, "label": None, "awaiting_rebound": False,
             "keep_shot_label": False, "pending_foul": None, "live": False, "first_action": None, "retained_ft": False,
+            "first_clock": None,                            # period clock at the first shot, turnover or trip to the line
+            "start_lag": lag,                               # tempo labels only: seconds to take off an untimed rebound's clock
         }
+
+    def first_event(clock_s: float) -> None:
+        if cur["first_clock"] is None:
+            cur["first_clock"] = clock_s
 
     def emit(p: dict, label: dict | None, end_clock_s: float, end_action: int | None) -> None:
         off = p["off"]
@@ -322,6 +384,16 @@ def segment_game(pbp: dict, box: dict) -> tuple[list[dict], dict]:
         s_off = p["score_home_start"] if off_home else p["score_away_start"]
         s_def = p["score_away_start"] if off_home else p["score_home_start"]
         used_off, used_def = ctx["off_timeouts_used"], ctx["def_timeouts_used"]
+        is_shot = label["ending"] == "shot" and not heave
+        tags = label.get("tags") or set()
+        scored_chance = label["ending"] in ("shot", "foul_drawn") and not heave
+        if scored_chance and tags:                          # cross-check two tags we can also derive ourselves
+            stats["tag_checks"] += 1
+            stats["second_chance_agree"] += int((F.Q_SECOND_CHANCE in tags) == (p["n_off_reb"] > 0))
+            stats["from_turnover_agree"] += int((F.Q_FROM_TURNOVER in tags) == (p["start_type"] == "turnover"))
+        first = p["first_clock"] if label["ending"] in ENDING_CLASSES else None
+        began = p["start_clock_s"] - p["start_lag"]         # when the offense really had the ball (see UNTIMED_REBOUND_LAG_S)
+        window = F.TWO_FOR_ONE_MIN_START_S < began <= F.TWO_FOR_ONE_MAX_START_S
         rows.append({
             "game_id": meta["game_id"], "season": season, "tipoff_utc": meta["tipoff_utc"],
             "poss_idx": len(rows), "period": p["period"],
@@ -343,13 +415,23 @@ def segment_game(pbp: dict, box: dict) -> tuple[list[dict], dict]:
             "lineup_ok": lineup_ok,
             "model_eligible": lineup_ok and not heave and label["ending"] in ENDING_CLASSES,
             "start_action_number": p["first_action"], "end_action_number": end_action,
+            # ---- step 2.2 labels: outcomes of this possession, never features of it ----
+            "action_style": label.get("style") if is_shot else None,
+            "assisted": (label.get("assister") is not None) if is_shot and label["made"] else None,
+            "assister_id": label.get("assister") if is_shot and label["made"] else None,
+            "first_action_clock_s": None if first is None else round(first, 2),
+            "secs_to_first_action": None if first is None else round(max(0.0, began - first), 2),
+            "tempo": tempo_class(began, first),
+            "fast_break": (F.Q_FAST_BREAK in tags) if scored_chance else None,
+            "two_for_one_window": window,                   # a situation: known when the possession starts
+            "two_for_one_taken": (first >= F.TWO_FOR_ONE_SHOOT_BY_S) if window and first is not None else None,
         })
 
-    def finalize(a: dict, clock_s: float, next_start: str) -> None:
+    def finalize(a: dict, clock_s: float, next_start: str, lag: float = 0.0) -> None:
         nonlocal cur
         off = cur["off"]
         emit(cur, cur["label"], clock_s, a.get(F.ACTION_NUMBER))
-        cur = new_poss(other[off], clock_s, next_start)
+        cur = new_poss(other[off], clock_s, next_start, lag)
 
     def claim(team: int, a: dict, clock_s: float) -> None:
         """Make `team` the offense of the current possession, closing a stale one if needed."""
@@ -368,6 +450,7 @@ def segment_game(pbp: dict, box: dict) -> tuple[list[dict], dict]:
         cur["off"] = team
 
     ft_kind = free_throw_kinds(actions)
+    rebound_lag = F.UNTIMED_REBOUND_LAG_S if untimed_rebounds(actions) else 0.0
 
     def and_one_follows(i: int, team: int) -> bool:
         """Is the made basket at index i followed by a single free throw that belongs to the same possession?
@@ -449,9 +532,11 @@ def segment_game(pbp: dict, box: dict) -> tuple[list[dict], dict]:
         elif t in (F.T_2PT, F.T_3PT) and team:
             claim(team, a, clock_s)
             cur["live"] = True
+            first_event(clock_s)
             made = _low(a, F.SHOT_RESULT) == F.SHOT_MADE
             cur["label"] = {"ending": "shot", "finisher": pid, "family": shot_family(a), "made": made,
-                            "heave": is_heave(a, clock_s), "ctx": snapshot(team, clock_s)}
+                            "heave": is_heave(a, clock_s), "ctx": snapshot(team, clock_s),
+                            "style": action_style(a), "assister": _int_or_none(a.get(F.ASSIST_PERSON_ID)) if made else None, "tags": _tags(a)}
             cur["awaiting_rebound"] = False
             if made:
                 cur["points"] += 3 if t == F.T_3PT else 2
@@ -464,6 +549,7 @@ def segment_game(pbp: dict, box: dict) -> tuple[list[dict], dict]:
         elif t == F.T_HEAVE and team:
             claim(team, a, clock_s)                         # 2025-26 onward: team-charged missed heave, no shooter
             cur["live"] = True
+            first_event(clock_s)
             cur["label"] = {"ending": "shot", "finisher": None, "family": None, "made": False, "heave": True, "ctx": snapshot(team, clock_s)}
             cur["awaiting_rebound"] = True
         elif t == F.T_REBOUND:
@@ -477,10 +563,11 @@ def segment_game(pbp: dict, box: dict) -> tuple[list[dict], dict]:
                 cur["keep_shot_label"] = False
                 cur["pending_foul"] = None
             else:
-                finalize(a, clock_s, "def_rebound")
+                finalize(a, clock_s, "def_rebound", rebound_lag)
         elif t == F.T_TURNOVER and team:
             claim(team, a, clock_s)
             cur["live"] = True
+            first_event(clock_s)
             cur["label"] = {"ending": "turnover", "finisher": pid, "family": None, "made": None, "heave": False, "ctx": snapshot(team, clock_s)}
             finalize(a, clock_s, "turnover")
         elif t == F.T_FOUL and team:
@@ -492,7 +579,7 @@ def segment_game(pbp: dict, box: dict) -> tuple[list[dict], dict]:
             if cur["off"] is not None and team == other[cur["off"]]:
                 cur["live"] = True
                 cur["pending_foul"] = {"finisher": _int_or_none(a.get(F.FOUL_DRAWN_PERSON_ID)), "ctx": snapshot(cur["off"], clock_s),
-                                       "penalty_before": in_penalty(team, clock_s)}
+                                       "penalty_before": in_penalty(team, clock_s), "clock": clock_s}
             if not offensive and F.FOUL_DOUBLE not in _low(a, F.DESCRIPTOR):
                 quals = a.get(F.QUALIFIERS)
                 if isinstance(quals, list):                 # cross-check our penalty rule against the feed's own tag
@@ -523,8 +610,11 @@ def segment_game(pbp: dict, box: dict) -> tuple[list[dict], dict]:
                 cur["points"] += 1
             if not cur["keep_shot_label"] and (cur["label"] is None or cur["label"]["ending"] != "foul_drawn"):
                 pf = cur["pending_foul"] or {}
+                first_event(pf.get("clock", clock_s))       # the foul decided it; the free throws follow at the same clock
                 cur["label"] = {"ending": "foul_drawn", "finisher": pf.get("finisher") or pid, "family": None,
-                                "made": None, "heave": False, "ctx": pf.get("ctx") or snapshot(team, clock_s)}
+                                "made": None, "heave": False, "ctx": pf.get("ctx") or snapshot(team, clock_s), "tags": set()}
+            if cur["label"] is not None and cur["label"]["ending"] == "foul_drawn":
+                cur["label"]["tags"] |= _tags(a)            # the scorer's tags sit on the free throws of the trip
             cur["awaiting_rebound"] = False
             if k >= n:
                 if made:
@@ -538,7 +628,8 @@ def segment_game(pbp: dict, box: dict) -> tuple[list[dict], dict]:
     info = {**meta, "season": season, "final_score": final,
             "anomalies": stats["anomalies"], "lineup_repairs": stats["lineup_repairs"],
             "penalty_checks": stats["penalty_checks"], "penalty_agree": stats["penalty_agree"],
-            "derived_box": bool(box.get("_derived")),
+            "tag_checks": stats["tag_checks"], "second_chance_agree": stats["second_chance_agree"], "from_turnover_agree": stats["from_turnover_agree"],
+            "derived_box": bool(box.get("_derived")), "untimed_rebounds": rebound_lag > 0,
             "unknown_action_types": sorted(stats["unknown_action_types"]),
             "synthetic": bool(pbp.get(F.SYNTHETIC_MARKER) or box.get(F.SYNTHETIC_MARKER))}
     return rows, info

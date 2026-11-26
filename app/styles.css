@@ -233,3 +233,11 @@ details table { font-size: 0.84rem; margin-top: 6px; }
   .tv.hh .plot { display: none; }
   .tv.hh th, .tv.hh td { padding: 7px 5px; white-space: normal; }
 }
+
+/* method page: label coverage, one row per label with its share of possessions on the right */
+.lab { list-style: none; margin: 0 0 8px; padding: 0; }
+.lab li { max-width: none; margin: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 20px; padding: 10px 0; border-top: 1px solid var(--rule); align-items: start; }
+.lab li:first-child { border-top: 0; padding-top: 0; }
+.lab .cov { text-align: right; }
+.lab .cov b { display: block; font: 900 1.5rem/1 var(--display); }
+.lab .cov span { display: block; max-width: 11ch; margin-left: auto; line-height: 1.25; margin-top: 2px; }

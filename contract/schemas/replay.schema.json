@@ -42,7 +42,13 @@
               "shot_made": {"type": ["boolean", "null"]},
               "points": {"type": "integer", "minimum": 0},
               "and_one": {"type": "boolean"},
-              "n_off_reb": {"type": "integer", "minimum": 0}
+              "n_off_reb": {"type": "integer", "minimum": 0},
+              "action_style": {"enum": ["plain_jumper", "drive", "pullup", "running", "floater", "turnaround_hook", "cut_lob", "step_back", "putback", "plain_finish", null]},
+              "assisted": {"type": ["boolean", "null"]},
+              "assister_id": {"type": ["integer", "null"]},
+              "secs_to_first_action": {"type": ["number", "null"], "minimum": 0},
+              "tempo": {"enum": ["early", "middle", "late", null]},
+              "fast_break": {"type": ["boolean", "null"]}
             }
           },
           "eligible": {"type": "boolean"},
@@ -54,6 +60,8 @@
             "properties": {
               "finisher": {"$ref": "#/$defs/pair5"},
               "ending_type": {"$ref": "#/$defs/pair3"},
+              "action_style": {"$ref": "#/$defs/pair10"},
+              "tempo": {"$ref": "#/$defs/pair3"},
               "shot_family": {"$ref": "#/$defs/pair5"}
             }
           }
@@ -70,6 +78,15 @@
       "properties": {
         "model": {"type": "array", "items": {"$ref": "#/$defs/prob"}, "minItems": 5, "maxItems": 5},
         "baseline": {"type": "array", "items": {"$ref": "#/$defs/prob"}, "minItems": 5, "maxItems": 5}
+      }
+    },
+    "pair10": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model", "baseline"],
+      "properties": {
+        "model": {"type": "array", "items": {"$ref": "#/$defs/prob"}, "minItems": 10, "maxItems": 10},
+        "baseline": {"type": "array", "items": {"$ref": "#/$defs/prob"}, "minItems": 10, "maxItems": 10}
       }
     },
     "pair3": {
