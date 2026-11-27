@@ -164,6 +164,16 @@ SCHED_STATUS_FINAL = 3
 REGULATION_PERIOD_SECONDS = 720.0
 OVERTIME_PERIOD_SECONDS = 300.0
 TIMEOUTS_PER_GAME = 7                # ignores the Q4 cap and overtime grants
+# --- stoppages (step 2.4). Profiled on 3,931 games, 2023-24 to 2026-27 ---------------
+# timeout subType: "full" 42,478, "challenge" 1,073, "short" 3, "officials" 1. Every one names the team charged.
+# Qualifier "mandatory" sits on 72% of full timeouts (7.8 a game): the ones that fill a quarter's two television
+# slots, whether a coach asked for them or the scorer charged them. The feed has no instant-replay events at all,
+# so a challenge is known only as a timeout: not what was challenged, and not whether it succeeded.
+ST_TIMEOUT_CHALLENGE = "challenge"
+MANDATORY_FIRST_S = 419.0            # 6:59: with no timeout yet this quarter, the next dead ball is one
+MANDATORY_SECOND_S = 179.0           # 2:59: the same with fewer than two
+FOUL_TAKE = "take"                   # foul descriptor: the scorer's word for a deliberate foul (2,711 of them; not "transition take")
+JUMPBALL_START = "startperiod"       # jumpball descriptor for the opening tip
 PENALTY_TEAM_FOULS = 4               # in the penalty once the defense has this many in a quarter
 PENALTY_TEAM_FOULS_OT = 3            # ... or this many in an overtime period; plus the last-two-minutes rule
 HEAVE_MAX_CLOCK_S = 3.0

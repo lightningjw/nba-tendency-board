@@ -56,6 +56,7 @@ ARCH_STYLE = {"guard": {"pullup": 1.7, "step back": 1.6, "": 0.8}, "wing": {"": 
 ASSIST_P = {"cutting": 0.97, "alley-oop": 1.0, "": 0.85, "pullup": 0.3, "step back": 0.25, "driving": 0.45, "driving finger roll": 0.45,
             "driving floating": 0.5, "floating": 0.5, "running": 0.7, "putback": 0.0, "tip": 0.0}
 STYLE_QUIRK = (2, "q4", "pullup", 3.0)       # team index 2 takes three times its usual share of pull-ups in the fourth quarter
+QUICK_HOOK_TEAM = 5                          # step 2.4: this bench takes a player out after a foul more readily than the rest
 
 
 def _team_id(i: int) -> int:
@@ -127,6 +128,14 @@ class GameSim:
         self.tos = {tid: 0 for tid in self.T}
         self.period, self.clock, self.elapsed = 0, 720.0, 0.0
         self.pending_timeout = False
+        # ---- step 2.4: what benches do at stoppages. A second generator, so the possession stream keeps its draws.
+        self.rc = np.random.default_rng(int(game_id))
+        self.pf: dict[tuple[int, int], int] = {}             # (team, player index) -> personal fouls
+        self.out = {tid: set() for tid in self.T}            # fouled out
+        self.sit: list[tuple[int, int]] = []                 # players to take out at the next dead ball (offensive fouls)
+        self.period_tos = 0
+        self.unanswered = {tid: 0 for tid in self.T}
+        self._seen = dict(self.score)
 
     # -- event plumbing ---------------------------------------------------------
     def ev(self, atype: str, sub: str = "", team: int | None = None, pi: int | None = None, **extra) -> dict:
@@ -150,8 +159,39 @@ class GameSim:
         a.update(extra)
         a[F.DESCRIPTION] = extra.get("description_override") or f"{a.get('playerName', a.get('teamTricode', ''))} {atype} {sub}".strip()
         a.pop("description_override", None)
+        personal = atype == "foul" and sub in ("personal", "offensive") and team is not None and pi is not None
+        if personal:
+            self.pf[(team, pi)] = self.pf.get((team, pi), 0) + 1
+            a[F.DESCRIPTION] += f" FOUL ({self.pf[(team, pi)]} PF)"      # the real feed prints the running count the same way
         self.actions.append(a)
+        if personal:
+            self.after_foul(team, pi, defer=sub == "offensive")
         return a
+
+    def after_foul(self, team: int, pi: int, defer: bool) -> None:
+        """Foul trouble, as planted: a player with more fouls than the period number usually sits; the sixth is the last."""
+        n = self.pf[(team, pi)]
+        over = n - min(self.period, 4)
+        p = 1.0 if n >= 6 else (0.05 if over < 0 else 0.12 if over == 0 else 0.55 if over == 1 else 0.85)
+        if self.T[team]["idx"] == QUICK_HOOK_TEAM and n < 6:
+            p = min(1.0, p + 0.3)
+        if n >= 6:
+            self.out[team].add(pi)
+        if self.rc.random() < p:
+            if defer:
+                self.sit.append((team, pi))                  # the turnover that goes with the foul is logged first
+            else:
+                self.take_out(team, pi)
+
+    def take_out(self, team: int, pi: int) -> None:
+        if pi not in self.on[team]:
+            return
+        bench = [i for i in range(10) if i not in self.on[team] and i not in self.out[team]]
+        if not bench:
+            return
+        w = np.array([self.T[team]["players"][i]["minutes_w"] for i in bench])
+        new = int(self.rc.choice(bench, p=w / w.sum()))
+        self.set_lineup(team, [i for i in self.on[team] if i != pi] + [new])
 
     def pid(self, team: int, pi: int) -> int:
         return self.T[team]["players"][pi]["player_id"]
@@ -172,17 +212,43 @@ class GameSim:
 
     def pick_lineup(self, team: int, closing: bool = False) -> list[int]:
         w = np.array([p["minutes_w"] for p in self.T[team]["players"]]) ** (2.5 if closing else 1.0)
+        if self.out[team] and len(self.out[team]) <= 5:
+            w[sorted(self.out[team])] = 0.0                  # fouled out
         return sorted(self.rng.choice(10, size=5, replace=False, p=w / w.sum()).tolist())
 
     def dead_ball(self, scored_on: int | None) -> None:
         r = self.rng
         late = self.period >= 4 and self.clock < 300
+        for team in (self.home, self.away):                  # the run in progress: points since the other team last scored
+            gain = self.score[team] - self._seen[team]
+            if gain > 0:
+                self.unanswered[team] += gain
+                self.unanswered[self.other[team]] = 0
+        self._seen = dict(self.score)
+        for team, pi in self.sit:
+            self.take_out(team, pi)
+        self.sit = []
+        due = self.period <= 4 and ((self.clock <= F.MANDATORY_FIRST_S and self.period_tos < 1)
+                                    or (self.clock <= F.MANDATORY_SECOND_S and self.period_tos < 2))
+        if due:                                              # the scorer charges it: home first, then whoever has one
+            team = self.home if self.tos[self.home] <= self.tos[self.away] else self.away
+            if self.tos[team] < F.TIMEOUTS_PER_GAME:
+                self.tos[team] += 1
+                self.period_tos += 1
+                self.ev("timeout", "full", team, qualifiers=["team", "mandatory"])
+                self.pending_timeout = True
         for team in (self.home, self.away):
-            p_to = 0.02 + (0.05 if late else 0.0) + (0.02 if team == scored_on else 0.0)
+            run = min(self.unanswered[self.other[team]], 10)  # planted: a bench calls time more often the longer the other team's run
+            p_to = 0.02 + (0.05 if late else 0.0) + (0.02 if team == scored_on else 0.0) + 0.012 * run
             if self.tos[team] < F.TIMEOUTS_PER_GAME and r.random() < p_to:
                 self.tos[team] += 1
-                self.ev("timeout", "full", team)
+                self.period_tos += 1
+                self.ev("timeout", "full", team, qualifiers=["team"])
                 self.pending_timeout = True
+        if self.rc.random() < 0.004:                         # a challenge: the feed logs it as a timeout and nothing more
+            self.period_tos += 1
+            self.ev("timeout", "challenge", self.home if self.rc.random() < 0.5 else self.away, qualifiers=["team"])
+            self.pending_timeout = True
         if r.random() < 0.006:                               # technical foul + technical free throw
             bad = self.home if r.random() < 0.5 else self.away
             good = self.other[bad]
@@ -306,8 +372,9 @@ class GameSim:
             if r.random() < 0.07:                            # non-shooting foul before the play develops
                 in_pen = self.fouls[d] >= F.PENALTY_TEAM_FOULS
                 self.fouls[d] += 1
+                take = self.period >= 4 and self.clock < 60 and self.score[d] < self.score[off]   # trailing late: a deliberate foul
                 self.ev("foul", "personal", d, int(r.choice(self.on[d])), **{F.FOUL_DRAWN_PERSON_ID: P["player_id"]},
-                        qualifiers=["inpenalty"] if in_pen else [])
+                        qualifiers=["inpenalty"] if in_pen else [], descriptor="take" if take else "")
                 if in_pen:
                     if self.free_throws(off, fi, 2, tags) or not self.rebound(off, 0.12):
                         return "free_throw" if self.actions[-1][F.ACTION_TYPE] == "freethrow" else "def_rebound"
@@ -400,6 +467,7 @@ class GameSim:
             self.period += 1
             self.clock = F.REGULATION_PERIOD_SECONDS if self.period <= 4 else F.OVERTIME_PERIOD_SECONDS
             self.fouls = {t: 0 for t in self.T}
+            self.period_tos = 0
             self.ev("period", "start")
             if self.period == 1:
                 self.ev("jumpball", "recovered", first, self.on[first][4])

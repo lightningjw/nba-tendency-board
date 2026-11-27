@@ -258,7 +258,7 @@ def test_hot_hand_only_counts_the_trip_before_in_the_same_period_with_him_still_
 def test_export_carries_the_validation_and_the_hot_hand_report(synth_run):
     out = synth_run["out"]
     man = json.loads((out / "manifest.json").read_text())
-    assert man["contract_version"] == "1.4" and man["tendency_method"]["final"] is True
+    assert man["contract_version"] == "1.5" and man["tendency_method"]["final"] is True
     assert "partial-pooling tendency layer" not in man["not_built"]
     val = json.loads((out / man["files"]["tendency_validation"]).read_text())
     assert val["available"] and val["season"] == 2091 and val["drift"]["season"] == 2090 and val["data_kind"] == "synthetic"
