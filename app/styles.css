@@ -258,5 +258,5 @@ ul.leftalone li:first-child { border-top: 0; padding-top: 0; }
   .tv.fit { font-size: 0.82rem; }
   .tv.fit th, .tv.fit td { padding: 7px 4px; }
   .tv.fit td:last-child { white-space: normal; }
-  .tv.fit .tag { margin-left: 0; }
+  .tv.fit .tag { display: block; width: max-content; margin: 2px 0 2px auto; }
 }
