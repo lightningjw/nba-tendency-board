@@ -47,6 +47,7 @@ CLOSE_MARGIN = 5                     # a close game: within this many points whe
 MAX_FOUL = 5                         # the sixth foul is a disqualification, not a decision
 MIN_TRAIN_ROWS = 200
 REPORT_LEVEL = 0.90
+PRIOR_MIN, PRIOR_MAX = 2.0, 200.0   # pseudo-rows the league's rate may weigh in a team's report row
 TIMEOUT_KINDS = ["foul", "turnover", "violation", "jump_ball", "team_rebound", "made_basket", "made_free_throw"]
 RUN_EDGES = [-1, 3, 6, 999]          # opponent's unanswered points: 0 to 3, 4 to 6, 7 or more
 RUN_LABELS = ["0 to 3", "4 to 6", "7 or more"]
@@ -325,6 +326,8 @@ def _eb_rows(cells: list[tuple[str, str, pd.Series]], d: pd.DataFrame, team_id: 
 
     The prior's strength comes from how much teams differ in that cell (method of moments), so a cell
     where every team behaves alike pulls a thin team sample hard, and one where teams differ pulls less.
+    It is capped at PRIOR_MAX pseudo-rows and at half the league's own sample: thirty teams with nine
+    fouls each cannot show that teams are identical, so a thin sample is always left some room.
     """
     out = []
     lo, hi = (1 - level) / 2, (1 + level) / 2
@@ -337,12 +340,13 @@ def _eb_rows(cells: list[tuple[str, str, pd.Series]], d: pd.DataFrame, team_id: 
             continue
         p = k_l / n_l
         g = c.groupby("team_id")["y"].agg(["sum", "size"])
-        m = 50.0
+        cap = max(PRIOR_MIN, min(PRIOR_MAX, n_l / 2))         # the league's rate is itself a count: never lean on it harder than that
+        m = min(50.0, cap)
         if len(g) > 2 and 0 < p < 1:
             ni, pi = g["size"].values.astype(float), g["sum"].values / g["size"].values
             denom = ni.sum() - (ni ** 2).sum() / ni.sum()
             tau2 = ((ni * (pi - p) ** 2).sum() - (len(g) - 1) * p * (1 - p)) / denom if denom > 0 else 0.0
-            m = float(np.clip(p * (1 - p) / tau2 - 1, 2.0, 500.0)) if tau2 > 1e-9 else 500.0
+            m = float(np.clip(p * (1 - p) / tau2 - 1, PRIOR_MIN, cap)) if tau2 > 1e-9 else cap
         a, b = k + m * p, n - k + m * (1 - p)
         out.append({"id": cid, "label": label, "n": n, "k": k, "raw_rate": round(k / n, 4) if n else None,
                     "rate": round(a / (a + b), 4), "interval": [round(float(beta_dist.ppf(lo, a, b)), 4), round(float(beta_dist.ppf(hi, a, b)), 4)],

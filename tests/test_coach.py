@@ -409,3 +409,15 @@ def test_a_game_the_dead_ball_table_cannot_read_keeps_its_possessions(tmp_path, 
     stops = pd.read_parquet(tmp_path / "processed" / "stoppages.parquet")
     assert stops["game_id"].nunique() == 2 and bad not in set(stops["game_id"])
     assert any("1 games could not be read" in l for l in lines)
+
+
+def test_a_thin_team_sample_is_never_pinned_to_the_league_rate():
+    """Thirty teams that look identical in a cell: the league still may not weigh more than half its own sample, or 200 rows."""
+    rng = np.random.default_rng(3)
+    d = pd.DataFrame({"team_id": np.repeat(np.arange(30), 9), "y": (rng.random(270) < 0.28).astype(int)})
+    d.loc[d["team_id"] == 0, "y"] = [1] + [0] * 8
+    row = coach._eb_rows([("c", "cell", pd.Series(True, index=d.index))], d, 0, 0.90)[0]
+    assert row["n"] == 9 and row["k"] == 1 and row["prior_strength"] <= 135.0
+    assert row["interval"][1] - row["interval"][0] > 0.10 and row["interval"][0] < row["rate"] < row["league_rate"]
+    big = pd.concat([d] * 40, ignore_index=True)                       # 10,800 rows: the cap is 200, not half the sample
+    assert coach._eb_rows([("c", "cell", pd.Series(True, index=big.index))], big, 0, 0.90)[0]["prior_strength"] <= 200.0

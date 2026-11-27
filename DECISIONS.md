@@ -575,7 +575,7 @@ Profiled on 3,931 real games (2023-24 to 2026-27, 241 of them from the live feed
 ### The three heads
 164. **Timeout.** One row per stoppage and team, in regulation, when no mandatory timeout is due and the team
      has used fewer than seven. Yes means the feed charged that team a full timeout there. Overtime is left out
-     because the table does not track overtime grants. 761,850 rows on three seasons, 3.9% yes.
+     because the table does not track overtime grants. 761,850 rows on three seasons, 3.6% yes.
 165. **The timeout baseline already knows the run.** It is the league's rate for the kind of stoppage (after a
      score, a foul, anything else), the part of the game (first three quarters, fourth, last three minutes) and
      the opponent's unanswered points (0 to 3, 4 to 6, 7 or more). Step 2.2 taught this: a baseline that lacks
@@ -623,8 +623,9 @@ Profiled on 3,931 real games (2023-24 to 2026-27, 241 of them from the live feed
 ### The report, the contract, the app
 177. **The team report gets one section, "What the bench did".** Timeout rate by opponent run, the rate of
      sitting a player at seven foul-and-period situations, and who closed. Each team rate is a beta posterior
-     that borrows from the league, with the prior's strength set from how much teams differ in that cell; the
-     row shows the count, the rate, a 90% interval and the league's rate with its n. Closers carry a plain
+     that borrows from the league, with the prior's strength set from how much teams differ in that cell and
+     capped at 200 pseudo-rows or half the league's sample (uncapped, a team with 1 of 9 was shown an interval
+     three points either side of the league's rate, which nine fouls cannot support); the row shows the count, the rate, a 90% interval and the league's rate with its n. Closers carry a plain
      interval on k of n. The season's games are all used: this is description, not a held-out score.
 178. **Descriptive framing is in the data, not only the page.** The section's note says these are descriptions
      and not grades, and travels in the JSON. Nothing computes or shows what a coach should have done.

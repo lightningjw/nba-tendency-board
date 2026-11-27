@@ -165,6 +165,50 @@ itself scores no differently: +0.001 points (-0.005 to +0.007). So the ball find
 there is no sign that it pays, or costs. This is an association: play-by-play cannot tell a team looking for the
 hot player from a player hunting his own shot.
 
+## What coaches did at stoppages
+
+Substitutions, timeouts and closing lineups are decided when play stops, so there is a second table beside the
+possession table: one row per stoppage, 593,571 of them in the same 3,690 games (161 a game). Each row has the
+clock and score, every player on the floor with his stint length, seconds played and fouls, the timeouts each
+team has used, the run in progress, and what each bench did before play resumed. The table's running foul count
+per player matches the count the feed prints on every one of 151,195 fouls (four seasons).
+
+Three decisions are read off it, each scored like the possession predictions: a baseline of league rates from
+earlier games, trees on top, the same held-out games. **These describe what coaches did. Nothing here says what
+they should have done.**
+
+| Decision | Held out | Rows | Model | Baseline | Difference (95% interval) |
+|---|---|---|---|---|---|
+| Timeout at a stoppage | late 2024-25, 492 games | 99,617 stoppages | 0.1081 | 0.1351 | -0.0270 (-0.0284 to -0.0254) |
+| Timeout at a stoppage | 2025-26, 1,230 games | 259,974 stoppages | 0.1049 | 0.1337 | -0.0288 (-0.0296 to -0.0279) |
+| A player sits after a foul | late 2024-25, 492 games | 17,853 fouls | 0.2599 | 0.3196 | -0.0596 (-0.0641 to -0.0550) |
+| A player sits after a foul | 2025-26, 1,230 games | 48,591 fouls | 0.2772 | 0.3387 | -0.0615 (-0.0642 to -0.0591) |
+| Who closes a close game | late 2024-25, 134 close games | 2,597 players | 0.4407 | 0.5098 | -0.0692 (-0.0855 to -0.0517) |
+| Who closes a close game | 2025-26, 331 close games | 6,570 players | 0.4349 | 0.5070 | -0.0721 (-0.0822 to -0.0614) |
+
+- **Timeout.** Asked at each stoppage in regulation where calling one is a choice: the team has a timeout, and
+  the rules are not about to stop play anyway (39,678 full timeouts; 8,496 came when a mandatory one was due and
+  4,141 were called with the ball live, and neither kind is a row). 3.6% of rows are a yes. The baseline already
+  knows the run: a team calls time at 1.9% of stoppages when the opponent has scored 0 to 3 unanswered, 7.7% at
+  4 to 6, and 11.4% at 7 or more (2025-26). That one split is worth 0.0096 of log-loss. The trees add 0.0288
+  more, mostly from the clock: how soon a mandatory timeout would come anyway, and how long since the last one.
+- **A player sits after a foul.** His first to fifth personal foul; yes means substituted before the clock ran
+  again. The baseline is the foul-trouble table every fan carries: in 2025-26 a second foul in the first quarter
+  took him out 41% of the time, a third in the first half 60% to 73%, a fourth in the third quarter 44%, a fifth
+  in the fourth 26%. The model's biggest addition is how long he had been on the floor.
+- **Who closes.** In games within five points with five minutes left (28% of games), the five who play most of
+  those minutes, predicted as the third quarter ends. Starters close 79% of the time and bench players 22%. The
+  baseline is each player's own closing record with the team; tonight's minutes through three quarters add the
+  rest. Top call right 80% against 75%.
+
+Each team report has a section built from the same rows: its timeout rate by opponent run, how often it sits a
+player at seven foul-and-period situations, and who has closed its close games, each with a count, an interval
+and the league's rate beside it.
+
+Not modelled, with the counts in the data: late deliberate fouls (2,544, two in three of them in the last minute
+of the fourth quarter or overtime; the label is clean, but the step allowed three heads), challenges (979; the
+feed logs the timeout and not what was challenged or whether it worked), and the next substitution in general.
+
 ## Limits
 
 - **Retrospective so far.** The table was computed after the games were played. The stricter test is built
