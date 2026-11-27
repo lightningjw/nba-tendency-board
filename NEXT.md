@@ -24,7 +24,6 @@
 ## Stubs, and where each plugs in (`tendency/stubs/`)
 | Stub | Phase | Slots in at |
 |---|---|---|
-| `coach_heads.label_coach_decisions` | 2 | new labels in `possessions.py`, new head ids in the manifest schema |
 | `live.serve_live` | 3 | FastAPI service that serves the replay contract for a game in progress |
 | `llm.summarize_team_report`, `llm.question_to_query` | 3 | reads team report JSON only; never answers from memory |
 | `defense.defense_fingerprint` | 3 | post-game proxies; no coverage labels |
@@ -62,6 +61,21 @@
   - The table has no start-of-possession fouls, timeouts or lineup, only the values read at the deciding event.
     The tempo head now borrows the previous possession's; a proper start snapshot in `possessions.py` is cleaner.
   - The sequence holds eligible possessions only (heaves and possessions cut off by the horn are skipped).
+
+## Step 2.4, done 2026-11-26: coach-decision heads (DECISIONS.md 151 onward)
+- `tendency/stoppages.py`: the dead-ball table (`processed/stoppages.parquet`) and a player-game table.
+  `tendency/coach.py`: three decisions on top (a timeout at a stoppage, a player sitting after a foul, who closes
+  a close game), each with a baseline from earlier games, and the "What the bench did" section of a team report.
+- All three beat their baselines on both held-out splits. Phase 2 of the roadmap is complete.
+- Left out:
+  - Late deliberate fouls, challenges, and the next substitution in general. The manifest says why and how many
+    of each the data holds. Late fouls are the easy one to add: the label (`take_foul_team_id`) is in the table.
+  - Overtime. The timeout head stops at the end of regulation and the closing head ignores overtime.
+  - Who comes IN. The foul head says a player sat; nothing says who replaced him.
+  - Per-coach rows. Sections are per team and season; a mid-season coaching change is averaged over.
+  - Not in the pregame log, and not tried with the transformer.
+  - The timeout head's "timeouts left" is seven minus used. The fourth-quarter caps would sharpen it late.
+  - The closing head is told nothing about injuries or ejections during the game beyond minutes and fouls.
 
 ## Known weaknesses worth fixing early
 - Timeouts-left and the penalty flag use simplified rules (see ASSUMPTIONS.md).

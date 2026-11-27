@@ -174,6 +174,44 @@ Checked where it says checked; the rest is assumed.
 - **Hot hand: the make-minus-miss gap is an association.** A night-long matchup advantage would produce part of it.
   The gap halving by two trips later says part of it is short-lived, and nothing here separates the two.
 
+## Stoppages and coach decisions (step 2.4, 2026-11-26): what was profiled, and what is assumed
+
+Profiled on 3,931 games (3,690 from the season archives, 241 from the live feed).
+
+Checked against the feed:
+- **Timeouts** always name the team charged. subType is `full` (42,478), `challenge` (1,073), `short` (3) or
+  `officials` (1). There are no instant-replay events, so a challenge has no subject and no result.
+- **Personal fouls.** The table's running count per player equals the "(n PF)" the feed prints on all 151,195
+  fouls. Technical fouls are not personal fouls and are not counted.
+- **Take fouls** carry descriptor `take` (2,711); `transition take` is a different call and is not counted as one.
+- **Substitutions sit at the stoppage's clock**: 96% of sub-outs come right after a timeout, foul, free throw,
+  turnover, rebound or period end logged at the same clock. Those with nothing before them that stops play get
+  an `unlogged` row (0.7 a game).
+- **The mandatory-timeout rule** (none yet in the quarter at 6:59, fewer than two at 2:59) is from the rulebook
+  as I remember it, then checked: when one is due, the first foul, dead-ball turnover or loose ball is followed
+  by a timeout 97.5% of the time, and the first of a quarter goes to the home team 99.1% of the time.
+
+Assumed, and worth knowing:
+- **A stoppage ends at the next live action in the feed.** An inbound pass is not logged, so a foul, an inbound
+  and a second foul two seconds later are two rows only because the clock moved.
+- **"Called at that stoppage" allows 8 seconds.** A team scored on usually calls time at once or as it crosses
+  half court. A timeout 9 seconds after a basket counts as called in live play. The cut is a judgment call.
+- **A team rebound with no player is a dead ball** (the miss went out of bounds). So is any turnover without a
+  steal. A kicked ball or a delay-of-game warning is a `violation` row, though play barely stops.
+- **Timeouts left is seven minus full timeouts used.** The fourth-quarter caps and overtime grants are not
+  modelled, which is why the timeout head stops at the end of regulation.
+- **Sitting after a foul means substituted before the clock ran again.** A player who stays for one more
+  possession and then comes out is a "no". So is one who fouls with two seconds left and sits to start the next
+  period.
+- **The closing five are the five with the most seconds in the last five minutes of the fourth quarter.** A
+  specialist who comes in for one defensive possession is not a closer by this definition. Ties go to the player
+  with more seconds in the game. Overtime is ignored.
+- **"Close" is within five points as those five minutes begin.** A game that was tied at 6:00 and a nine-point
+  game at 5:00 is not close; a nine-point game that tightens at 2:00 is not either.
+- **Stints run through period breaks.** A player who finishes one quarter and starts the next has one stint.
+- **A player's seconds are game-clock seconds between logged substitutions**, so they inherit any substitution
+  the feed logged late.
+
 ## Verified from documentation only (nba_api docs, not a live file)
 
 - Endpoints: `cdn.nba.com/static/json/liveData/playbyplay/playbyplay_{gameId}.json` and

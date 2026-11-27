@@ -178,6 +178,10 @@ hot player from a player hunting his own shot.
 - **No play calls, no defensive coverages.** Play-by-play records what ended a possession, not the set that was
   called or how a pick-and-roll was guarded. Nothing here predicts or implies them. Teams with tracking and
   video have richer labels; the point is the method, not exclusive insight.
+- **Coach decisions are descriptions.** The three decision heads say what a bench did and how well that can
+  be anticipated. They do not say what it should have done, and a timeout the scorer charged is
+  indistinguishable from one a coach asked for when the rules were about to stop play (those stoppages are left
+  out). Challenges, late deliberate fouls and who comes in for whom are not modelled.
 - **Lineups are inferred.** The season archives have no boxscore, so starters are the first five players to act
   and lineups follow from substitutions. Sixteen possessions (one game with a missing substitution) do not
   reconstruct to five a side and are left out.
@@ -316,6 +320,8 @@ tendency/             pipeline package
   tendencies.py       the earlier simple-shrinkage stand-in, kept as the reference the validation scores against
   tendency_pymc.py    the same model by NUTS; optional extra, used only by the validation
   hot_hand.py         after a make or a miss: who finishes the next possession, and what it scores
+  stoppages.py        the dead-ball table: one row per stoppage, with both fives, the run, and what each bench did
+  coach.py            three coach decisions read off it, their baselines, and the report's bench section
   export.py           writes and validates the contract JSON
   bulk.py             whole seasons from the GitHub mirror; derives the boxscore the archive lacks
   teams.py            the 30 franchises by team id (city, nickname)
@@ -324,14 +330,16 @@ tendency/             pipeline package
   stubs/              named placeholders for everything outside the MVP
 scripts/              fetch_nba_api.py and nightly.sh, for your own machine only
 docs/                 terms check, screenshot, release notes
-tests/                pytest: segmentation edge cases, leakage, ingest, models, contract, prospective log, tendency layer
+tests/                pytest: segmentation edge cases, leakage, ingest, models, contract, prospective log, tendency layer,
+                      stoppages and coach decisions
 app/                  static front end (no build step); app/data is the bundled sample export
 ```
 
 ## The app
 
-Five views: Method (what it does, what the feed can label, and its limits), Team report, Replay with "guess before the model", Scorecard
-(which also carries the tendency layer's half-season check), and Hot hand.
+Five views: Method (what it does, what the feed can label, the dead-ball table, and its limits), Team report
+(tendencies, then what the bench did at stoppages), Replay with "guess before the model", Scorecard
+(possession predictions, coach decisions, and the tendency layer's half-season check), and Hot hand.
 It is a plain static site: host the `app/` folder anywhere (GitHub Pages works). Served over HTTPS it installs
 to a phone home screen and works offline after the first load.
 
