@@ -26,7 +26,6 @@
 |---|---|---|
 | `live.serve_live` | 3 | FastAPI service that serves the replay contract for a game in progress |
 | `llm.summarize_team_report`, `llm.question_to_query` | 3 | reads team report JSON only; never answers from memory |
-| `defense.defense_fingerprint` | 3 | post-game proxies; no coverage labels |
 
 ## Step 2.1, done 2026-11-23: the tendency layer (DECISIONS.md 86-109)
 - `tendency/tendency_layer.py` replaces the stand-in in the export. `tendencies.py` stays, only as the thing the
@@ -76,6 +75,30 @@
   - Not in the pregame log, and not tried with the transformer.
   - The timeout head's "timeouts left" is seven minus used. The fourth-quarter caps would sharpen it late.
   - The closing head is told nothing about injuries or ejections during the game beyond minutes and fouls.
+
+## Step 3.1, done 2026-11-27: defense proxy fingerprints (DECISIONS.md 184 onward)
+- `tendency/defense.py`: for every defense, seven outcomes of its opponents' possessions (five shot areas, fouls
+  drawn, turnovers) against what the same opponents do against everyone else, pooled by the tendency layer.
+  Each team report has a "Defense" section. `tendency/defense_validation.py` is the half-season check and
+  writes a `defense` block into `tendency_validation.json` (contract 1.6).
+- Team rows beat "what tonight's opponent usually does" on 2025-26 for all three outcome groups, and on
+  2024-25 for shot locations and turnovers (not fouls).
+- Built, checked and left out of every report: rows for one five-man lineup and for the lineups that include
+  one player. They did not beat the team's own row, on average or on the few rows a report would single out.
+  The check reruns on every export.
+- Left out:
+  - **Who guarded whom.** The mirror's matchups archives are already in `data/real/bulk/` for 2023-24 to
+    2025-26 and nothing reads them beyond player names. DECISIONS.md 198 has the join and which side of a row
+    is the defender. No script is needed and nba.com is not involved. Nothing exists yet for 2026-27.
+  - **League season-level defensive statistics** (DECISIONS.md 199).
+  - **The opposing five.** Expected is the opposing team's offense as a whole. Using the five on the floor
+    (their own shot mixes, as the action-style baseline does) is the obvious next step and is what a lineup
+    row would need before it could be trusted.
+  - **Steals apart from other turnovers, and shooting fouls apart from bonus fouls.** The possession table
+    does not carry either split.
+  - **Shot quality allowed.** Rows are about where shots come from and how possessions end, not whether shots
+    go in; opponent shooting percentage is mostly noise at these sample sizes and was not attempted.
+  - **A per-game card.** One game supports an interval of about eight points either side on rim share.
 
 ## Known weaknesses worth fixing early
 - Timeouts-left and the penalty flag use simplified rules (see ASSUMPTIONS.md).
