@@ -470,7 +470,7 @@ class GameSim:
             self.period_tos = 0
             self.ev("period", "start")
             if self.period == 1:
-                self.ev("jumpball", "recovered", first, self.on[first][4])
+                self.ev("jumpball", "recovered", first, self.on[first][4], descriptor=F.JUMPBALL_START)
             else:
                 for team in (self.home, self.away):
                     self.set_lineup(team, self.pick_lineup(team, closing=self.period >= 4))

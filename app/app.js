@@ -8,7 +8,7 @@ const OPTIONAL = ["tendency_validation", "hot_hand"];      // contract 1.2; an o
 const VIEWS = ["method", "team", "replay", "scorecard", "hothand"];
 const FAMS = ["rim", "paint", "midrange", "corner3", "above_break3"];
 const HEADS = ["finisher", "ending_type", "shot_family"];      // the three the guess mode asks about; every export has them
-const NUMBER = ["zero", "One", "Two", "Three", "Four", "Five", "Six"];
+const NUMBER = ["zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight"];
 const $ = (sel) => document.querySelector(sel);
 
 const S = {
@@ -32,6 +32,8 @@ const day = (iso) => new Date(iso).toLocaleDateString("en-US", { year: "numeric"
 const team = (id) => S.teams.byId.get(id) || { tricode: String(id), name: String(id) };
 const player = (id) => S.teams.players.get(id) || `Player ${id}`;
 const head = (id) => S.manifest.heads.find((h) => h.id === id);
+const isDecision = (id) => (head(id) || {}).kind === "decision";       // contract 1.5: a coach decision at a stoppage, not a possession outcome
+const possHeads = () => S.manifest.heads.filter((h) => h.kind !== "decision");
 const START = { period_start: "Start of period", made_basket: "After a made basket", def_rebound: "Off a defensive rebound", turnover: "Off a turnover", free_throw: "After free throws", other: "Other start" };
 const SPLIT = { holdout_games: "Held-out games, same seasons as training", holdout_season: "Held-out season", prospective: "Games logged before tip-off" };
 
@@ -155,8 +157,8 @@ async function renderMethod() {
   ${synth ? `<p class="note">This build runs on simulated games so the whole thing can be clicked through before real data is ingested. Team and player names are placeholders. No number on any page is an NBA result, and no claim is made that the models beat their baselines on real games.</p>` : ""}
   ${m.field_names_verified ? "" : `<p class="note">The pipeline's feed field names have not been checked against a real game file yet. Until that check passes, treat the real-data path as untested.</p>`}
 
-  <section class="section"><h2>${NUMBER[m.heads.length] || m.heads.length} predictions, each with a baseline to beat</h2>
-    <div class="cols">${m.heads.map((h) => `<div class="sheet"><h3>${esc(h.label)}</h3>
+  <section class="section"><h2>${NUMBER[possHeads().length] || possHeads().length} predictions, each with a baseline to beat</h2>
+    <div class="cols">${possHeads().map((h) => `<div class="sheet"><h3>${esc(h.label)}</h3>
       <p>${h.classes ? esc(h.class_labels.join(", ")) + "." : "One of the five offensive players on the floor."}${h.conditional_on ? ` Given that ${esc(h.conditional_on)}.` : ""}</p>
       <p class="small muted">Baseline: ${esc(h.baseline)}.${h.logged_before_tipoff === false ? " Scored looking back only; not part of the pregame log." : ""}</p></div>`).join("")}</div>
     <p style="margin-top:14px">The model for each prediction is gradient-boosted trees that start from the baseline's odds and learn corrections from game context: clock, score, fouls, timeouts, who is on the floor, how the possession started, and what has happened so far in the game. A prediction is kept only if it beats its baseline on real games it never saw; the scorecard shows by how much, and the margins are small.${secondModel()}</p>
@@ -191,12 +193,69 @@ async function renderMethod() {
     </div>
   </section>
 
+  ${stoppagesSection()}
+
   <section class="section"><h2>Not built yet</h2>
     <p>${esc(m.not_built.join(", "))}. Teams with tracking and video vendors have richer labels than this; the point here is the method, not exclusive insight.</p>
   </section>`;
 }
 
 // ---------- view: team report ----------
+// ---------- method: the dead-ball table and the coach decisions read off it (contract 1.5) ----------
+function stoppagesSection() {
+  const m = S.manifest, st = m.stoppages, dec = m.heads.filter((h) => h.kind === "decision");
+  if (!st || !dec.length) return "";
+  const perGame = (n) => (n / st.n_games).toFixed(1);
+  const chk = st.personal_foul_check, to = st.timeouts;
+  const rowsFor = Object.fromEntries(st.decision_rows.map((r) => [r.head, r]));
+  return `<section class="section"><h2>What coaches did at stoppages</h2>
+    <p>Substitutions, timeouts and closing lineups are decided when play stops, not during a possession. So beside the possession table there is a second one: ${int(st.n_stoppages)} stoppages in ${int(st.n_games)} games, each with the clock, the score, how long every player on the floor has been out there and how many fouls he has, the timeouts each team has used, the run in progress, and what each bench did before play resumed. Everything in this section describes what coaches did. None of it says what they should have done.</p>
+    <div class="cols">${dec.map((h) => `<div class="sheet"><h3>${esc(h.label)}</h3>
+      <p>${esc(h.class_labels.join(" or "))}. Asked when ${esc(h.conditional_on)}.</p>
+      <p class="small muted">Baseline: ${esc(h.baseline)}. ${rowsFor[h.id] ? `${int(rowsFor[h.id].n)} ${esc(h.unit)} here, ${pct(rowsFor[h.id].n_yes / Math.max(1, rowsFor[h.id].n), 1)} of them a yes.` : ""} Scored looking back only.</p></div>`).join("")}</div>
+    <div class="cols" style="margin-top:18px">
+      <div class="sheet"><h3>What counts as a stoppage</h3>
+        <div class="scroll"><table class="tv fit"><thead><tr><th>What stopped play</th><th>Rows</th><th>A game</th></tr></thead><tbody>
+          ${st.kinds.filter((k) => k.n).map((k) => `<tr><th>${esc(k.label)}</th><td>${int(k.n)}</td><td>${perGame(k.n)}</td></tr>`).join("")}</tbody></table></div>
+        <p class="small muted">A made basket or a made last free throw is a row because a timeout can be called before the inbound, though a substitution cannot. The run in progress is the points each team scored in the last ${st.run_possessions} possessions, and the points scored since the other team last did.</p></div>
+      <div class="sheet"><h3>What could be checked</h3>
+        <p>${chk.n ? `The feed prints each player's running foul count on every foul. This table's own count matches it on ${int(chk.agree)} of ${int(chk.n)} fouls.` : "This feed does not print running foul counts, so the table's own count could not be checked against it."}</p>
+        <p class="small muted">Of ${int(to.n_full)} full timeouts, ${int(to.n_when_mandatory_due)} came when the rules stop play anyway (none yet in the quarter with 6:59 left, or fewer than two with 2:59 left). The feed does not say whether a coach asked for those, so they are not decisions here. Another ${int(to.n_live_ball)} were called with the ball in play, where there is no matching "did not call one" to compare with.</p></div>
+      <div class="sheet"><h3>Decisions left alone</h3>
+        <ul class="leftalone">${st.not_modelled.map((x) => `<li><b>${esc(x.label)}</b> <span class="small muted">(${int(x.n)} in this data)</span><br><span class="small">${esc(x.why)}</span></li>`).join("")}</ul></div>
+    </div>
+  </section>`;
+}
+
+// ---------- team report: what the bench did (contract 1.5) ----------
+function benchSection(r) {
+  const cd = r.coach_decisions;
+  if (!cd) return "";
+  const lvl = Math.round(cd.interval_level * 100);
+  const row = (x) => {
+    const away = x.n > 0 && (x.interval[0] > x.league_rate || x.interval[1] < x.league_rate);
+    return `<tr><th>${esc(x.label)}</th><td>${x.n ? `${int(x.k)} of ${int(x.n)}` : "none yet"}</td>
+      <td><b>${pct(x.rate, 1)}</b>${away ? ` <span class="tag">${x.rate > x.league_rate ? "above" : "below"} league</span>` : ""}<br><span class="small muted">${pct(x.interval[0], 1)} to ${pct(x.interval[1], 1)}</span></td>
+      <td>${pct(x.league_rate, 1)}<br><span class="small muted">n = ${int(x.league_n)}</span></td></tr>`;
+  };
+  const tbl = (first, rows) => `<div class="scroll"><table class="tv fit"><thead><tr><th>${first}</th><th>Count</th><th>Rate, ${lvl}% interval</th><th>League</th></tr></thead><tbody>${rows.map(row).join("")}</tbody></table></div>`;
+  const c = cd.closing, mins = Math.round(c.window_s / 60);
+  return `<div class="sheet"><h2 style="margin-bottom:4px">What the bench did</h2>
+    <p class="muted" style="margin-top:0">${esc(seasonName(cd.season))}. ${esc(cd.note)}</p>
+    <h3>Timeouts</h3>
+    <p class="small muted">Stoppages in regulation where calling one was a choice: the team had a timeout, and the rules were not about to stop play anyway.</p>
+    ${tbl("When play stopped", cd.timeouts)}
+    <h3 style="margin-top:22px">After a foul</h3>
+    <p class="small muted">A player on the floor is whistled; taken out means before the clock ran again.</p>
+    ${tbl("The foul", cd.foul_trouble)}
+    <h3 style="margin-top:22px">Who closes</h3>
+    ${c.n_close_games ? `<p class="small muted">${int(c.n_close_games)} game${c.n_close_games === 1 ? "" : "s"} within ${c.close_margin} points with ${mins} minutes left. A closer is one of the five who played most of those minutes. Counted over the close games in which the player had been on the floor before the fourth quarter.</p>
+    <div class="scroll"><table class="tv fit"><thead><tr><th>Player</th><th>Closed</th><th>Rate, ${lvl}% interval</th></tr></thead><tbody>
+      ${c.players.map((x) => `<tr><th>${esc(player(x.player_id))}</th><td>${int(x.k)} of ${int(x.n)}</td><td><b>${pct(x.rate)}</b><br><span class="small muted">${pct(x.interval[0])} to ${pct(x.interval[1])}</span></td></tr>`).join("")}</tbody></table></div>`
+    : `<p class="note plain">No game this season was within ${c.close_margin} points with ${mins} minutes left.</p>`}
+  </div>`;
+}
+
 async function renderTeam() {
   const teams = S.teams.teams;
   if (!S.teamId) S.teamId = teams[0].team_id;
@@ -247,7 +306,8 @@ async function renderTeam() {
     <p><strong>${esc(r.method.label)}.</strong> ${intro}</p>
     ${r.tendencies.length ? `<ul class="tend">${rows}</ul>` : `<p class="note plain">No situation has at least 25 possessions for this team yet. Ingest more games and run the export again.</p>`}
     <p class="note plain">${outro}</p>
-  </div>`;
+  </div>
+  ${benchSection(r)}`;
   document.querySelectorAll("[data-team]").forEach((b) => b.addEventListener("click", () => { S.teamId = Number(b.dataset.team); render(); }));
 }
 
@@ -421,7 +481,7 @@ function renderScorecard() {
       <table><thead><tr><th>Log-loss, lower is better</th><th>Value</th><th>${lvl}% interval</th></tr></thead><tbody>
         <tr><th>Model</th>${f(s.model)}</tr><tr><th>Baseline</th>${f(s.baseline)}</tr>
         <tr><th>Model minus baseline</th><td>${sign(s.delta.log_loss)}</td><td>${sign(s.delta.interval[0])} to ${sign(s.delta.interval[1])}</td></tr></tbody></table>
-      <p class="small muted" style="margin-top:10px">${int(s.n_possessions)} possessions in ${int(s.n_games)} games. Top pick right: model ${pct(s.top1.model, 1)}, baseline ${pct(s.top1.baseline, 1)} (n = ${int(s.top1.n)}).
+      <p class="small muted" style="margin-top:10px">${int(s.n_possessions)} ${esc(head(h.head).unit || "possessions")} in ${int(s.n_games)} games. ${isDecision(h.head) ? "" : `Top pick right: model ${pct(s.top1.model, 1)}, baseline ${pct(s.top1.baseline, 1)} (n = ${int(s.top1.n)}).`}
         Average calibration gap: model ${pct(s.reliability.model.ece, 1)}, baseline ${pct(s.reliability.baseline.ece, 1)}.</p>
       <details><summary>Calibration table</summary>
         <table><thead><tr><th>Model band</th><th>Mean predicted</th><th>Observed</th><th>n</th></tr></thead><tbody>${bins(s.reliability.model)}</tbody></table>
@@ -441,6 +501,9 @@ function renderScorecard() {
         Each game is scored with pregame numbers from the morning of the game, so it cannot see another game from the same night.</p>
       ${pro.heads.map((h) => `<h3 class="prohd">${esc(head(h.head).label)}</h3>${block(h, h.result)}`).join("")}`
     : `<p class="note plain">${esc(pro.reason || "Nothing logged yet")}. Everything under "Looking back" was computed after the games were played, on games the models never trained on. It becomes prospective only when a prediction file is committed before tip-off and scored afterwards.</p>`;
+  const sheet = (h) => `<div class="sheet"><h2 style="margin-bottom:4px">${esc(head(h.head).label)}</h2>
+    <p class="small muted">Baseline: ${esc(head(h.head).baseline)}.${head(h.head).conditional_on ? ` Scored only when ${esc(head(h.head).conditional_on)}.` : ""}${head(h.head).logged_before_tipoff === false ? " Not part of the pregame log: these results are looking back only." : ""}</p>
+    ${h.splits.map((s) => block(h, s)).join("")}${threeWay(h, lvl)}</div>`;
   $("#view").innerHTML = `
   <div class="pagehead"><div><h2>Scorecard</h2>
     <p class="muted">Each prediction against its baseline on games the models never saw. A verdict needs the whole ${lvl}% interval of the difference on one side of zero.</p></div></div>
@@ -449,9 +512,10 @@ function renderScorecard() {
   <h2 class="lookback">Looking back</h2>
   <p class="muted" style="margin-top:0">Retrospective: held-out games and a held-out season, scored after the fact.</p>
   ${modelsNote()}
-  ${sc.heads.map((h) => `<div class="sheet"><h2 style="margin-bottom:4px">${esc(head(h.head).label)}</h2>
-    <p class="small muted">Baseline: ${esc(head(h.head).baseline)}.${head(h.head).conditional_on ? ` Scored only when ${esc(head(h.head).conditional_on)}.` : ""}${head(h.head).logged_before_tipoff === false ? " Not part of the pregame log: these results are looking back only." : ""}</p>
-    ${h.splits.map((s) => block(h, s)).join("")}${threeWay(h, lvl)}</div>`).join("")}
+  ${sc.heads.filter((h) => !isDecision(h.head)).map(sheet).join("")}
+  ${sc.heads.some((h) => isDecision(h.head)) ? `<h2 class="lookback">Coach decisions</h2>
+  <p class="muted" style="margin-top:0">What a bench did at a stoppage, scored the same way: can it be anticipated better than a table of league rates? This says nothing about whether the decision was a good one. Trees only; rows are stoppages, fouls or players, not possessions.</p>
+  ${sc.heads.filter((h) => isDecision(h.head)).map(sheet).join("")}` : ""}
   <p class="note plain">Intervals: ${esc(sc.bootstrap)}. Calibration pools every class: each dot is a band of predicted probabilities and how often those calls came true.</p>
   ${tendencyCheck()}`;
 }

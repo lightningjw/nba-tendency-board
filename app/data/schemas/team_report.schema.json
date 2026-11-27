@@ -224,6 +224,179 @@
     },
     "drift_included": {
       "type": "boolean"
+    },
+    "coach_decisions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "note",
+        "interval_level",
+        "season",
+        "timeouts",
+        "foul_trouble",
+        "closing"
+      ],
+      "properties": {
+        "note": {
+          "type": "string"
+        },
+        "interval_level": {
+          "type": "number",
+          "minimum": 0.5,
+          "maximum": 0.999
+        },
+        "season": {
+          "type": "integer"
+        },
+        "timeouts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/decision_row"
+          }
+        },
+        "foul_trouble": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/decision_row"
+          }
+        },
+        "closing": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "n_close_games",
+            "close_margin",
+            "window_s",
+            "players"
+          ],
+          "properties": {
+            "n_close_games": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "close_margin": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "window_s": {
+              "type": "number",
+              "minimum": 0
+            },
+            "players": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "player_id",
+                  "n",
+                  "k",
+                  "rate",
+                  "interval"
+                ],
+                "properties": {
+                  "player_id": {
+                    "type": "integer"
+                  },
+                  "n": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "k": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "rate": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "interval": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "items": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "decision_row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "label",
+        "n",
+        "k",
+        "raw_rate",
+        "rate",
+        "interval",
+        "league_rate",
+        "league_n",
+        "prior_strength"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "n": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "k": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "raw_rate": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "rate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "interval": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        },
+        "league_rate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "league_n": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "prior_strength": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
     }
   }
 }

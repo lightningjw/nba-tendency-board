@@ -311,7 +311,7 @@ def stoppage_profile(stops: pd.DataFrame, checks: dict, tables: dict[str, pd.Dat
                     "overtime), but it is one narrow situation that the score and the clock nearly decide, and the step allows three heads."},
             {"id": "challenges", "label": "Challenges", "n": n_chal,
              "why": "The feed logs a challenge as a timeout and nothing else: not which call was challenged and not whether it succeeded. "
-                    "About one in four games has one, which is too few to model without knowing what was at stake."},
+                    f"There are {n_chal / max(1, n_games):.2f} a game here, too few to model without knowing what was at stake."},
             {"id": "next_substitution", "label": "The next substitution in general", "n": n_subs,
              "why": "Who comes in for whom is a choice among every pairing on the roster. The foul-trouble head is the one slice of it with a "
                     "yes-or-no label at a single whistle."},
