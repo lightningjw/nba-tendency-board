@@ -9,4 +9,4 @@ __version__ = "0.1.0"
 # 1.4 (step 2.3) lets the scorecard carry a second model: an optional `models` list, and on each head an optional
 #     `model_id` (the head's primary model) and `challengers` (the other model on the same possessions, with its
 #     paired difference against the primary). An export made without PyTorch has neither and is still valid.
-CONTRACT_VERSION = "1.5"
+CONTRACT_VERSION = "1.6"

@@ -20,9 +20,10 @@ from .prospective import scorecard_block
 from .tendency_layer import INTERVAL_LEVEL as TENDENCY_LEVEL
 from .tendency_layer import METHOD, THRESHOLD, estimate_drift, team_reports
 from . import coach as coach_mod
+from . import defense as defense_mod
+from . import defense_validation
 
-NOT_BUILT = ["live mode", "ask box", "LLM-written summaries",
-             "defense proxies"]
+NOT_BUILT = ["live mode", "ask box", "LLM-written summaries"]
 TENDENCY_NOTE = ("Deviations are estimated on the logit scale with partial pooling: a team's rate against the league, its rate in a situation "
                  "against its other possessions, a player's share against what his usage and the four teammates on the floor predict. "
                  "Intervals include the baseline's own uncertainty and how much tendencies moved between the halves of an earlier season. "
@@ -89,6 +90,9 @@ def export_all(out: Path, poss: pd.DataFrame, games: list[dict], run: ModelRun, 
     `coach` and `stops` are the step 2.4 decision heads and the dead-ball table they were read from.
     Without them the export has the five possession heads only, as contract 1.4 did.
 
+    Each team report also gets a "Defense" section (step 3.1, `defense.py`): what its opponents did
+    against what they usually do. Its half-season check goes into tendency_validation.json.
+
     `predictions` is the prospective log folder (`predict` / `score`). Without it, or when it holds
     nothing scored yet, the scorecard carries an empty prospective block.
     """
@@ -124,6 +128,8 @@ def export_all(out: Path, poss: pd.DataFrame, games: list[dict], run: ModelRun, 
     drift = estimate_drift(poss[poss["season"] == max(earlier)]) if earlier else None     # never measured on the season being reported
     reports = team_reports(poss[poss["season"] == latest], names, drift=drift)
     decisions = coach_mod.team_sections(coach.tables, latest, names) if coach is not None else {}
+    def_drift = defense_mod.estimate_drift(poss[poss["season"] == max(earlier)]) if earlier else None
+    fingerprints = defense_mod.team_sections(poss[poss["season"] == latest], def_drift)
     for t in teams_doc["teams"]:
         rep = reports.get(t["team_id"]) or {"team_id": t["team_id"], "n_games": 0, "n_possessions": 0, "n_candidates": 0, "method": METHOD,
                                             "interval_level": TENDENCY_LEVEL, "threshold": THRESHOLD, "drift_included": False,
@@ -131,11 +137,13 @@ def export_all(out: Path, poss: pd.DataFrame, games: list[dict], run: ModelRun, 
         rep = {"team_id": rep["team_id"], "data_kind": kind, "as_of_utc": as_of, **{k: v for k, v in rep.items() if k != "team_id"}}
         if t["team_id"] in decisions:
             rep["coach_decisions"] = decisions[t["team_id"]]
+        if t["team_id"] in fingerprints:
+            rep["defense"] = fingerprints[t["team_id"]]
         validate(rep, "team_report", f"team report {t['team_id']}")
         _dump(out / "team_reports" / f"{t['team_id']}.json", rep)
 
     # ---- tendency validation and the hot-hand report -------------------------------------
-    val = {"data_kind": kind, **tendency_validation.report(poss)}
+    val = {"data_kind": kind, **tendency_validation.report(poss), "defense": defense_validation.report(poss)}
     validate(val, "tendency_validation")
     _dump(out / "tendency_validation.json", val)
     hot = {"data_kind": kind, **hot_hand_report(poss)}
@@ -263,4 +271,9 @@ def export_all(out: Path, poss: pd.DataFrame, games: list[dict], run: ModelRun, 
         log(f"tendency validation, season {val['season']}, {s['scope']} cells ({s['n_cells']:,}): hierarchical {h['verdict']} vs the stand-in "
             f"(log-loss {d['vs_stand_in']['diff']:+.6f}, {d['vs_stand_in']['interval'][0]:+.6f} to {d['vs_stand_in']['interval'][1]:+.6f}); "
             f"90% coverage {h['coverage']:.3f} as is" + (f", {d['coverage']:.3f} with drift" if h["with_drift"] else ""))
+    dv = val["defense"]
+    for sl in dv["slices"]:
+        m = next(x for x in sl["methods"] if x["method"] == sl["shipped"])
+        log(f"defense check, season {dv['season']}, {sl['scope']} / {sl['outcomes']} ({sl['n_cells']:,} cells, {sl['n_trials']:,} trials): {m['verdict']} vs "
+            f"'{sl['reference']}' (log-loss {m['vs_reference']['diff']:+.6f}, {m['vs_reference']['interval'][0]:+.6f} to {m['vs_reference']['interval'][1]:+.6f})")
     return counts
