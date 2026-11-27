@@ -50,7 +50,6 @@ SCOPES = {"defense_team": "Team defense, every opponent possession",
           "defense_lineup": "One five-man lineup"}
 KINDS = {"defense_vs_opponents": "Against what the same opponents do against every other defense",
          "defense_unit_vs_team_elsewhere": "Against the same opponents and this team's defense in its other possessions"}
-KIND_OF = {"defense_team": "defense_vs_opponents", "defense_player": "defense_unit_vs_team_elsewhere", "defense_lineup": "defense_unit_vs_team_elsewhere"}
 NO_DRIFT = {"rate": {s: 0.0 for s in SCOPES}, "dev": {k: 0.0 for k in KINDS}}
 AREA_LABEL = {"rim": "Rim", "paint": "Paint (non-rim)", "midrange": "Midrange", "corner3": "Corner three", "above_break3": "Above-the-break three"}
 OUTCOMES = [("shot_family", c, f"{AREA_LABEL[c]} share of opponents' shots") for c in SHOT_FAMILIES] + [
