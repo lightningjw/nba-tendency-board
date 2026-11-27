@@ -245,3 +245,18 @@ details table { font-size: 0.84rem; margin-top: 6px; }
 /* scorecard: three-way table. A smaller verdict chip so it fits in a cell; a standalone "experimental" tag. */
 .verdict.small { font-size: 0.95rem; padding: 4px 7px; border-width: 1.5px; white-space: nowrap; }
 .splitname > .tag { font-size: 0.78rem; font-weight: 600; color: var(--pencil); border: 1px solid var(--pencil); border-radius: 4px; padding: 1px 6px; }
+
+/* step 2.4: the stoppage table on the method page and the bench section of a team report */
+ul.leftalone { list-style: none; margin: 0; padding: 0; }
+ul.leftalone li { max-width: none; margin: 0; padding: 10px 0; border-top: 1px solid var(--rule); }
+ul.leftalone li:first-child { border-top: 0; padding-top: 0; }
+.tv.fit { min-width: 0; }
+.tv.fit th, .tv.fit td { padding: 7px 6px; }
+.tv.fit th:first-child { padding-left: 0; }
+.tv.fit td:last-child, .tv.fit th:last-child { padding-right: 0; }
+@media (max-width: 520px) {
+  .tv.fit { font-size: 0.82rem; }
+  .tv.fit th, .tv.fit td { padding: 7px 4px; }
+  .tv.fit td:last-child { white-space: normal; }
+  .tv.fit .tag { display: block; width: max-content; margin: 2px 0 2px auto; }
+}

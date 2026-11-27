@@ -76,7 +76,9 @@ def test_checker_catches_a_same_game_pregame_leak(small_poss):
 
 def test_checker_catches_an_ingame_leak_of_the_current_possession(small_poss):
     gid = _games(small_poss)[20]
-    assert ingame_leaks(_leaky_ingame, small_poss, gid, 60, IN_POSS + ["leaky"], IN_CAND) == ["leaky"]
+    g = small_poss[(small_poss["game_id"] == gid) & small_poss["model_eligible"]]
+    k = int(g.loc[g["poss_idx"] >= 60, "poss_idx"].iloc[0])         # a heave or a horn has no feature row, so nothing there to catch
+    assert ingame_leaks(_leaky_ingame, small_poss, gid, k, IN_POSS + ["leaky"], IN_CAND) == ["leaky"]
 
 
 def test_first_games_get_the_neutral_prior(small_poss):

@@ -19,8 +19,9 @@ from .hot_hand import hot_hand_report
 from .prospective import scorecard_block
 from .tendency_layer import INTERVAL_LEVEL as TENDENCY_LEVEL
 from .tendency_layer import METHOD, THRESHOLD, estimate_drift, team_reports
+from . import coach as coach_mod
 
-NOT_BUILT = ["coach-decision heads", "live mode", "ask box", "LLM-written summaries",
+NOT_BUILT = ["live mode", "ask box", "LLM-written summaries",
              "defense proxies"]
 TENDENCY_NOTE = ("Deviations are estimated on the logit scale with partial pooling: a team's rate against the league, its rate in a situation "
                  "against its other possessions, a player's share against what his usage and the four teammates on the floor predict. "
@@ -81,8 +82,12 @@ def _none(v):
 
 
 def export_all(out: Path, poss: pd.DataFrame, games: list[dict], run: ModelRun, synthetic: bool,
-               max_replays: int = 30, fields_verified: bool = False, log=print, predictions: Path | None = None) -> dict:
+               max_replays: int = 30, fields_verified: bool = False, log=print, predictions: Path | None = None,
+               coach: "coach_mod.CoachRun | None" = None, stops: pd.DataFrame | None = None) -> dict:
     """Write manifest, teams, games, scorecard, team reports and replays into `out`.
+
+    `coach` and `stops` are the step 2.4 decision heads and the dead-ball table they were read from.
+    Without them the export has the five possession heads only, as contract 1.4 did.
 
     `predictions` is the prospective log folder (`predict` / `score`). Without it, or when it holds
     nothing scored yet, the scorecard carries an empty prospective block.
@@ -118,11 +123,14 @@ def export_all(out: Path, poss: pd.DataFrame, games: list[dict], run: ModelRun, 
     earlier = [int(s) for s in poss["season"].unique() if s < latest]
     drift = estimate_drift(poss[poss["season"] == max(earlier)]) if earlier else None     # never measured on the season being reported
     reports = team_reports(poss[poss["season"] == latest], names, drift=drift)
+    decisions = coach_mod.team_sections(coach.tables, latest, names) if coach is not None else {}
     for t in teams_doc["teams"]:
         rep = reports.get(t["team_id"]) or {"team_id": t["team_id"], "n_games": 0, "n_possessions": 0, "n_candidates": 0, "method": METHOD,
                                             "interval_level": TENDENCY_LEVEL, "threshold": THRESHOLD, "drift_included": False,
                                             "sort": "rank_score_desc", "tendencies": []}
         rep = {"team_id": rep["team_id"], "data_kind": kind, "as_of_utc": as_of, **{k: v for k, v in rep.items() if k != "team_id"}}
+        if t["team_id"] in decisions:
+            rep["coach_decisions"] = decisions[t["team_id"]]
         validate(rep, "team_report", f"team report {t['team_id']}")
         _dump(out / "team_reports" / f"{t['team_id']}.json", rep)
 
@@ -137,7 +145,7 @@ def export_all(out: Path, poss: pd.DataFrame, games: list[dict], run: ModelRun, 
     # ---- scorecard -------------------------------------------------------------------
     scorecard = {"data_kind": kind, "generated_at": now, "interval_level": INTERVAL_LEVEL,
                  "bootstrap": "1,000 resamples of whole games (possessions within a game are not independent)",
-                 "heads": run.scorecard_heads, "prospective": scorecard_block(predictions, kind)}
+                 "heads": run.scorecard_heads + (coach.heads if coach is not None else []), "prospective": scorecard_block(predictions, kind)}
     if run.models:                                           # more than one model was scored (transformer.py)
         scorecard["models"] = run.models
     validate(scorecard, "scorecard")
@@ -239,6 +247,10 @@ def export_all(out: Path, poss: pd.DataFrame, games: list[dict], run: ModelRun, 
     }
     for h in manifest["heads"]:
         h["logged_before_tipoff"] = h["id"] in HEADS          # the step 2.2 heads are scored looking back only
+    if coach is not None:
+        manifest["heads"] += coach_mod.manifest_heads()
+        checks = {k: sum(int(g.get(k, 0)) for g in games) for k in ("pf_checks", "pf_agree")}
+        manifest["stoppages"] = coach_mod.stoppage_profile(stops, checks, coach.tables)
     validate(manifest, "manifest")
     _dump(out / "manifest.json", manifest)
     counts = validate_export_dir(out)

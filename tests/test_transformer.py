@@ -167,14 +167,16 @@ def test_scorecard_with_and_without_a_second_model_is_valid(synth_run):
     out = synth_run["out"]
     sc = json.loads((out / "scorecard.json").read_text())
     man = json.loads((out / "manifest.json").read_text())
-    assert man["contract_version"] == "1.4" and "transformer predictor" not in man["not_built"]
+    assert man["contract_version"] == "1.5" and "transformer predictor" not in man["not_built"]
     if tr.torch_available():
         assert [m["model_id"] for m in sc["models"]] == ["lightgbm", "transformer"]
         fit = sc["models"][1]["fit"]
         assert len(fit["configs"]) == 3 and sum(c["chosen"] for c in fit["configs"]) == 1 and fit["seconds"] > 0 and "PyTorch" in fit["hardware"]
         assert len(fit["seeds"]) == 2 and fit["seeds"][0] != fit["seeds"][1]
         assert [c["history"] for c in fit["configs"]] == [True, True, False]
-        for h in sc["heads"]:
+        for h in sc["heads"][5:]:                                       # the step 2.4 decision heads are trees only: no sequence to read
+            assert h["model_id"] == "lightgbm" and "challengers" not in h
+        for h in sc["heads"][:5]:
             assert h["model_id"] in ("lightgbm", "transformer") and len(h["challengers"]) == 1
             if h["model_id"] == "lightgbm":
                 assert [s["split"] for s in h["challengers"][0]["second_seed"]] == ["holdout_games", "holdout_season"]

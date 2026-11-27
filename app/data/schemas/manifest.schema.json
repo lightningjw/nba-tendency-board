@@ -5,7 +5,7 @@
   "additionalProperties": false,
   "required": ["contract_version", "generated_at", "data_kind", "notice", "coverage", "heads", "splits", "tendency_method", "quality", "field_names_verified", "not_built", "files"],
   "properties": {
-    "contract_version": {"enum": ["1.0", "1.1", "1.2", "1.3", "1.4"]},
+    "contract_version": {"enum": ["1.0", "1.1", "1.2", "1.3", "1.4", "1.5"]},
     "generated_at": {"type": "string"},
     "data_kind": {"enum": ["synthetic", "real"]},
     "notice": {"type": "string"},
@@ -25,14 +25,16 @@
     "heads": {
       "type": "array",
       "minItems": 3,
-      "maxItems": 5,
+      "maxItems": 8,
       "items": {
         "type": "object",
         "additionalProperties": false,
         "required": ["id", "label", "classes", "class_labels", "conditional_on", "baseline"],
         "properties": {
-          "id": {"enum": ["finisher", "ending_type", "shot_family", "action_style", "tempo"]},
+          "id": {"enum": ["finisher", "ending_type", "shot_family", "action_style", "tempo", "timeout", "foul_sub", "closing_five"]},
           "logged_before_tipoff": {"type": "boolean"},
+          "kind": {"enum": ["possession", "decision"]},
+          "unit": {"type": "string"},
           "label": {"type": "string"},
           "classes": {"type": ["array", "null"], "items": {"type": "string"}},
           "class_labels": {"type": ["array", "null"], "items": {"type": "string"}},
@@ -92,6 +94,28 @@
           "coverage": {"type": "number", "minimum": 0, "maximum": 1},
           "note": {"type": ["string", "null"]}
         }
+      }
+    },
+    "stoppages": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["n_stoppages", "n_games", "run_possessions", "kinds", "personal_foul_check", "timeouts", "decision_rows", "not_modelled"],
+      "properties": {
+        "n_stoppages": {"type": "integer", "minimum": 0},
+        "n_games": {"type": "integer", "minimum": 0},
+        "run_possessions": {"type": "integer", "minimum": 0},
+        "kinds": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["kind", "label", "n"],
+          "properties": {"kind": {"type": "string"}, "label": {"type": "string"}, "n": {"type": "integer", "minimum": 0}}}},
+        "personal_foul_check": {"type": "object", "additionalProperties": false, "required": ["n", "agree"],
+          "properties": {"n": {"type": "integer", "minimum": 0}, "agree": {"type": "integer", "minimum": 0}}},
+        "timeouts": {"type": "object", "additionalProperties": false, "required": ["n_full", "n_when_mandatory_due", "n_live_ball"],
+          "properties": {"n_full": {"type": "integer", "minimum": 0}, "n_when_mandatory_due": {"type": "integer", "minimum": 0},
+                         "n_live_ball": {"type": "integer", "minimum": 0}}},
+        "decision_rows": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["head", "unit", "n", "n_yes"],
+          "properties": {"head": {"enum": ["timeout", "foul_sub", "closing_five"]}, "unit": {"type": "string"},
+                         "n": {"type": "integer", "minimum": 0}, "n_yes": {"type": "integer", "minimum": 0}}}},
+        "not_modelled": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["id", "label", "n", "why"],
+          "properties": {"id": {"type": "string"}, "label": {"type": "string"}, "n": {"type": "integer", "minimum": 0}, "why": {"type": "string"}}}}
       }
     },
     "field_names_verified": {"type": "boolean"},

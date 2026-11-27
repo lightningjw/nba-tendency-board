@@ -519,3 +519,130 @@ paired on the same possessions, 95% interval from resampling whole games.
      PyTorch, and 1.0 to 1.3 exports, validate and render.
 149. **The pregame log is untouched.** A frozen model is still three LightGBM heads; shot style is not logged.
 150. **CI installs CPU-only PyTorch** so the leakage test runs there, from PyTorch's CPU wheel index.
+
+## Step 2.4: coach-decision heads (2026-11-26)
+
+Profiled on 3,931 real games (2023-24 to 2026-27, 241 of them from the live feed) before anything was designed.
+
+### The dead-ball table
+151. **A second table beside the possession table, built in the same pass over the same files**
+     (`tendency/stoppages.py`, written to `processed/stoppages.parquet`). One row per stoppage: 634,384 rows,
+     161 a game. A row is one whistle or one made basket and everything logged before play resumes. A live
+     action (a shot, a rebound a player pulls down, a steal, a block, a turnover with a steal) ends it. A new
+     whistle after the clock has run opens a new row; events at the same clock are one whistle.
+152. **A made basket and a made last free throw are rows.** No substitution is allowed there, but a timeout is,
+     and 23,724 of 42,178 full timeouts follow a made basket. The team scored on calls 99.5% of those (23,724
+     against 124), so after a basket or a made free throw only that team gets a decision row. Splitting the row
+     at the last free throw keeps the score and the run current for the timeout that follows the free throws.
+153. **A timeout belongs to the stoppage before it when it comes within 8 seconds of game clock.** Of the
+     timeouts that follow a whistle or a basket, 66% carry the same clock and 93% come within 2 seconds. Later
+     than 8 seconds, or after a live action, the timeout was called with the ball in play: its own row
+     (`timeout_live`, 4,392 of them) and never a decision row, because there is no matching row for the moments
+     nobody called one.
+154. **Mandatory timeouts are not decisions, and the feed's own tag does not find them.** The `mandatory`
+     qualifier sits on 72% of full timeouts: it marks the ones that fill a quarter's two television slots,
+     asked for or not. So the table applies the rule instead: a timeout is due at the next dead ball when none
+     has been taken in the quarter with 6:59 left, or fewer than two with 2:59 left. Checked against the data:
+     at the first foul, dead-ball turnover or loose ball while one is due, a timeout follows 97.5% of the time
+     (5,879 cases; 99.4% at fouls), and the first of a quarter is charged to the home team 99.1% of the time.
+     Stoppages where one is due are left out of the timeout head.
+155. **Personal fouls are counted here and checked against the feed.** The feed prints each player's running
+     count on every foul ("(3 PF)"). This table's count matches on 151,195 of 151,195.
+156. **The run in progress is two numbers per team.** Points in the last 10 possessions (both teams' together,
+     read from the possession table), and points scored since the other team last scored.
+157. **Substitutions between periods come from the lineups, not the log.** The feed often leaves them out, so a
+     `period_break` row holds the difference between the five who ended one period and the five who started
+     the next. Lineups are rebuilt exactly as the possession table rebuilds them.
+158. **Substitutions with no whistle before them get a row of their own** (`unlogged`, 0.7 a game). The feed
+     missed what stopped play; they are in the table and in no decision.
+159. **The pregame log does not build this table.** `build_possessions` takes a flag that only the full
+     pipeline sets, so `train` and `predict` read and write exactly what they did before. A test checks it.
+
+### Which three, and which were left
+160. **Kept the three the roadmap suggested**, after checking each label on real games: a timeout at a
+     stoppage, a player sitting after a foul, and who closes a close game. I did not stop to ask; the roadmap
+     says to pick the cleanest three and say which were dropped.
+161. **Late deliberate fouls: not built.** The scorer's `take` descriptor marks them (2,711 fouls; about two in
+     three come in the last minute of the fourth quarter or overtime, nearly all by the trailing team). The
+     label is clean. It is also one narrow situation that the score and clock nearly decide, and the step
+     allows three heads.
+162. **Challenges: not built.** 1,073 in 3,931 games. The feed logs a challenge as a timeout with subType
+     `challenge` and has no replay events at all, so it never says which call was challenged or whether it
+     worked. Without the call at stake there is nothing to condition on.
+163. **The next substitution in general: not built.** Who replaces whom is a choice among every pairing on the
+     roster. Foul trouble is the one slice with a yes-or-no label at a single whistle.
+
+### The three heads
+164. **Timeout.** One row per stoppage and team, in regulation, when no mandatory timeout is due and the team
+     has used fewer than seven. Yes means the feed charged that team a full timeout there. Overtime is left out
+     because the table does not track overtime grants. 761,850 rows on three seasons, 3.6% yes.
+165. **The timeout baseline already knows the run.** It is the league's rate for the kind of stoppage (after a
+     score, a foul, anything else), the part of the game (first three quarters, fourth, last three minutes) and
+     the opponent's unanswered points (0 to 3, 4 to 6, 7 or more). Step 2.2 taught this: a baseline that lacks
+     the obvious thing makes the model look clever for learning it. On 2025-26 the run bucket alone is worth
+     0.0096 of log-loss (-0.0101 to -0.0090) over the same table without it. The trees then add 0.0288, mostly
+     from clock structure the table cannot hold: seconds until a mandatory timeout would come anyway, time
+     since the last one, the exact stoppage. Finer run features add only 0.0013 beyond the three buckets.
+166. **A player sits after a foul.** One row per personal foul, first to fifth, by a player on the floor.
+     Yes means he was substituted out before the clock ran again (free throws included). The sixth foul is a
+     disqualification, not a decision. Baseline: the league's rate for that foul number in that period. The
+     strongest added input is how long he has been on the floor: a player near the end of a normal stint comes
+     out anyway.
+167. **A foul near the end of a period is a "no" even if he sits to start the next one.** The label is what
+     happened at that whistle. The clock is a feature, so the model learns it; the report section should be
+     read the same way.
+168. **Who closes.** A game is close when it is within five points as the last five minutes of the fourth
+     quarter begin (27.8% of games). The closing five are the team's five with the most seconds in those five
+     minutes, which holds up through offense-defense substitutions; they play 93.9% of the team's seconds
+     there. Each player who had played before the fourth quarter gets a row, predicted as the third quarter
+     ends. Baseline: how often he closed for this team in earlier close games, pulled toward the league's rate
+     for starters (79%) or bench players (22%).
+169. **The closing head is scored only on games that turned out close.** Nobody knows that when the third
+     quarter ends, and the model is not told. It is a statement about who closes given that the game is close,
+     which is the question a scout asks. Eighteen closers of about 10,900 had not played before the fourth
+     quarter and are not rows.
+170. **Every baseline and prior counts games that tipped off strictly earlier**, this season in full and
+     earlier seasons at half weight, the same discount the possession features use. The first night of the
+     first season starts from a fixed guess (5%, 20%, 50%) with 20 rows of weight.
+171. **One team feature per head: how far the team has run from its baseline in earlier games.** A coach's
+     habit, as a number. It is worth 0.001 to 0.002.
+172. **Same splits, same `evaluate()`.** A yes-or-no head goes in as two columns. The scorecard does not print
+     "top pick right" for these: with 96% of timeout rows a no, it says nothing.
+173. **Trees only.** The transformer reads possessions; these rows are stoppages, fouls and players. Not tried.
+174. **All three beat their baselines on both splits, so none was cut.** Numbers are in the README.
+
+### Leakage
+175. **Two guards and a registry** (`tests/test_coach.py`). Cutting a game's feed off at any point leaves every
+     earlier stoppage row identical, so a row holds only what had happened. Rewriting what every bench did in a
+     game and in all later games (every team calls time, every fouler sits, the bench closes) leaves that
+     game's baselines and priors unchanged; rewriting earlier games moves them. A third test lists every
+     feature of every head and fails if one is neither a whistle snapshot nor an earlier-games count.
+176. **Lineup repair still reads ahead within a period**, as it does for possessions: a player seen acting
+     before any substitution is taken to have started the period. That is data repair, not an outcome.
+
+### The report, the contract, the app
+177. **The team report gets one section, "What the bench did".** Timeout rate by opponent run, the rate of
+     sitting a player at seven foul-and-period situations, and who closed. Each team rate is a beta posterior
+     that borrows from the league, with the prior's strength set from how much teams differ in that cell and
+     capped at 200 pseudo-rows or half the league's sample (uncapped, a team with 1 of 9 was shown an interval
+     three points either side of the league's rate, which nine fouls cannot support); the row shows the count, the rate, a 90% interval and the league's rate with its n. Closers carry a plain
+     interval on k of n. The season's games are all used: this is description, not a held-out score.
+178. **Descriptive framing is in the data, not only the page.** The section's note says these are descriptions
+     and not grades, and travels in the JSON. Nothing computes or shows what a coach should have done.
+179. **Contract 1.5.** Manifest: three more head ids, optional `kind` and `unit` on a head, an optional
+     `stoppages` block (rows by kind, the foul-count check, timeouts set aside, decisions not modelled and
+     why). Scorecard: up to eight heads. Team report: optional `coach_decisions`. A 1.4 export validates and
+     renders; the app shows the new sections only when they are there.
+180. **No new dependency.** The beta interval uses SciPy, already required.
+
+### The simulator
+181. **The simulator now behaves at stoppages**: it counts personal fouls and prints them the way the feed does,
+     sits a player whose fouls outrun the period (one team more readily), fouls players out, charges mandatory
+     timeouts, calls more timeouts the longer the other team's run, and logs a few challenges and take fouls.
+     These draws come from a second generator so the possession stream keeps its own.
+182. **Two older tests were made less lucky, not looser.** One used a single "control" team whose
+     fourth-quarter pull-up share happened to sit at zero; closing lineups really move that mix a little, so it
+     now requires every other team's deviation to be under half the planted one. The other probed possession
+     60 of one game, which became a heave; it now takes the first eligible possession from 60 on.
+183. **A decision head needs 200 training rows with both outcomes**, or it is reported as not fitted with the
+     reason. The synthetic sample has 293 closing rows.

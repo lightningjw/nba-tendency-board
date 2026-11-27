@@ -31,7 +31,7 @@
     "heads": {
       "type": "array",
       "minItems": 3,
-      "maxItems": 5,
+      "maxItems": 8,
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -46,7 +46,10 @@
               "ending_type",
               "shot_family",
               "action_style",
-              "tempo"
+              "tempo",
+              "timeout",
+              "foul_sub",
+              "closing_five"
             ]
           },
           "splits": {

@@ -261,9 +261,9 @@ def test_new_baselines_are_probabilities_and_tempo_knows_how_the_possession_star
 def test_export_carries_five_heads_label_coverage_and_the_new_fields(synth_run):
     out = synth_run["out"]
     man = json.loads((out / "manifest.json").read_text())
-    assert man["contract_version"] == "1.4"
-    assert [h["id"] for h in man["heads"]] == ["finisher", "ending_type", "shot_family", "action_style", "tempo"]
-    assert [h["logged_before_tipoff"] for h in man["heads"]] == [True, True, True, False, False]
+    assert man["contract_version"] == "1.5"
+    assert [h["id"] for h in man["heads"]][:5] == ["finisher", "ending_type", "shot_family", "action_style", "tempo"]
+    assert [h["logged_before_tipoff"] for h in man["heads"]][:5] == [True, True, True, False, False]
     assert man["heads"][3]["classes"] == ACTION_STYLES and len(man["heads"][3]["class_labels"]) == 10
     labels = {l["id"]: l for l in man["labels"]}
     assert set(labels) == {"action_style", "creation", "secs_to_first_action", "tempo", "fast_break", "two_for_one"}
@@ -272,8 +272,8 @@ def test_export_carries_five_heads_label_coverage_and_the_new_fields(synth_run):
     assert labels["creation"]["coverage"] < labels["action_style"]["coverage"] < labels["tempo"]["coverage"]
     assert "second-chance agrees" in labels["fast_break"]["note"]
     sc = json.loads((out / "scorecard.json").read_text())
-    assert [h["head"] for h in sc["heads"]] == ["finisher", "ending_type", "shot_family", "action_style", "tempo"]
-    for h in sc["heads"][3:]:
+    assert [h["head"] for h in sc["heads"]][:5] == ["finisher", "ending_type", "shot_family", "action_style", "tempo"]
+    for h in sc["heads"][3:5]:
         for s in h["splits"]:
             assert s["available"] and s["n_possessions"] > 1000 and s["verdict"] in ("model_better", "baseline_better", "inconclusive")
     games = json.loads((out / "games.json").read_text())["games"]
@@ -300,5 +300,8 @@ def test_team_reports_can_show_the_new_outcomes_and_a_planted_style_quirk_is_fou
     assert [r for rs in rows.values() for r in rs if r["outcome"]["head"] == "tempo" and r["situation"]["id"] == "start_turnover"]
     hit = [r for r in rows[9900003] if r["situation"]["id"] == "q4" and r["outcome"] == {"head": "action_style", "class": "pullup", "label": "Pull-up share of shots"}][0]
     assert hit["deviation"] > 0.02 and hit["excludes_zero"] and hit["prob_beyond"] > 0.9
-    control = [r for r in rows[9900008] if r["situation"]["id"] == "q4" and r["outcome"]["class"] == "pullup"][0]
-    assert not control["excludes_zero"]
+    # No single control team: closing lineups really do move every team's fourth-quarter mix a little, so one of the
+    # seven others can clear zero by a point or two in any given league. None comes near the planted one.
+    others = [abs(r["deviation"]) for t, rs in rows.items() if t != 9900003 for r in rs
+              if r["situation"]["id"] == "q4" and r["outcome"].get("class") == "pullup"]
+    assert len(others) == 7 and max(others) < hit["deviation"] / 2
