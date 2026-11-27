@@ -27,7 +27,7 @@ def build_possessions(root: Path, log=print, stoppages: bool = False) -> tuple[p
     files = sorted(pbp_dir.glob("*.json")) if pbp_dir.exists() else []
     if not files:
         raise PipelineError(f"no raw play-by-play under {pbp_dir}; run `python -m tendency ingest` (or `sample`) first")
-    frames, games, bad, stop_frames, player_frames = [], [], [], [], []
+    frames, games, bad, stop_frames, player_frames, stop_bad = [], [], [], [], [], []
     for f in files:
         box_f = box_dir / f.name
         try:
@@ -37,14 +37,17 @@ def build_possessions(root: Path, log=print, stoppages: bool = False) -> tuple[p
             r, info = segment_game(pbp, box)
             if not info["tipoff_utc"]:
                 raise FeedShapeError("boxscore has no tip time; needed to order games")
-            if stoppages:
+        except (FeedShapeError, json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
+            bad.append((f.stem, f"{type(e).__name__}: {e}"))
+            continue
+        if stoppages:                                     # its own guard: a game the dead-ball table cannot read keeps its possessions
+            try:
                 st, pl, checks = build_stoppages(pbp, box, r)
                 info.update(checks)
                 stop_frames.append(pd.DataFrame(st))
                 player_frames.append(pd.DataFrame(pl))
-        except (FeedShapeError, json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
-            bad.append((f.stem, f"{type(e).__name__}: {e}"))
-            continue
+            except (FeedShapeError, KeyError, TypeError, ValueError) as e:
+                stop_bad.append((f.stem, f"{type(e).__name__}: {e}"))
         frames.append(pd.DataFrame(r))                    # per game, so 700k+ row dicts never sit in memory at once
         games.append(info)
     for gid, err in bad[:10]:
@@ -72,6 +75,8 @@ def build_possessions(root: Path, log=print, stoppages: bool = False) -> tuple[p
     poss.to_parquet(proc / "possessions.parquet", index=False)
     (proc / "games.json").write_text(json.dumps(games))
     if stoppages:
+        if not stop_frames:
+            raise PipelineError(f"the dead-ball table could not be built for any game. First error: {stop_bad[0][1]}")
         stops = pd.concat(stop_frames, ignore_index=True)
         stops["trigger_team_id"] = stops["trigger_team_id"].astype("Int64")
         stops["take_foul_team_id"] = stops["take_foul_team_id"].astype("Int64")
@@ -83,8 +88,11 @@ def build_possessions(root: Path, log=print, stoppages: bool = False) -> tuple[p
         players["on_floor_q3"] = players["on_floor_q3"].astype("boolean")
         stops.to_parquet(proc / "stoppages.parquet", index=False)
         players.to_parquet(proc / "player_games.parquet", index=False)
-        n_pf, ok_pf = sum(g["pf_checks"] for g in games), sum(g["pf_agree"] for g in games)
-        log(f"stoppages: {len(stops):,} stoppages ({len(stops) / len(games):.0f} a game)"
+        n_pf, ok_pf = sum(g.get("pf_checks", 0) for g in games), sum(g.get("pf_agree", 0) for g in games)
+        for gid, err in stop_bad[:10]:
+            log(f"  ! no stoppage rows for {gid}: {err}")
+        log(f"stoppages: {len(stops):,} stoppages ({len(stops) / max(1, len(games) - len(stop_bad)):.0f} a game)"
+            + (f"; {len(stop_bad)} games could not be read" if stop_bad else "")
             + (f"; personal-foul counts match the feed's own on {ok_pf:,} of {n_pf:,} fouls" if n_pf else ""))
     unknown = sorted({t for g in games for t in g["unknown_action_types"]})
     log(f"possessions: {len(poss):,} possessions from {len(games)} games ({len(bad)} skipped); "

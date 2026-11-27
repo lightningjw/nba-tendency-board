@@ -386,3 +386,26 @@ def test_the_prospective_path_builds_no_stoppage_table(tmp_path, synth_run):
     poss, games = build_possessions(tmp_path, log=lambda *_: None)
     assert not (tmp_path / "processed" / "stoppages.parquet").exists() and "pf_checks" not in games[0]
     assert poss.columns.tolist() == synth_run["poss"].columns.tolist()
+
+
+def test_a_game_the_dead_ball_table_cannot_read_keeps_its_possessions(tmp_path, synth_run, monkeypatch):
+    import shutil
+    from tendency import pipeline
+    for kind in ("pbp", "box"):
+        (tmp_path / "raw" / kind).mkdir(parents=True)
+        for gid in synth_run["ids"][:3]:
+            shutil.copy(synth_run["root"] / "raw" / kind / f"{gid}.json", tmp_path / "raw" / kind / f"{gid}.json")
+    real, bad = pipeline.build_stoppages, synth_run["ids"][1]
+
+    def flaky(pbp, box, rows):
+        if pbp[F.GAME][F.GAME_ID] == bad:
+            raise ValueError("unreadable")
+        return real(pbp, box, rows)
+
+    monkeypatch.setattr(pipeline, "build_stoppages", flaky)
+    lines = []
+    poss, games = pipeline.build_possessions(tmp_path, log=lines.append, stoppages=True)
+    assert poss["game_id"].nunique() == 3 and len(games) == 3
+    stops = pd.read_parquet(tmp_path / "processed" / "stoppages.parquet")
+    assert stops["game_id"].nunique() == 2 and bad not in set(stops["game_id"])
+    assert any("1 games could not be read" in l for l in lines)
