@@ -195,6 +195,8 @@ async function renderMethod() {
 
   ${stoppagesSection()}
 
+  ${defenseMethod()}
+
   <section class="section"><h2>Not built yet</h2>
     <p>${esc(m.not_built.join(", "))}. Teams with tracking and video vendors have richer labels than this; the point here is the method, not exclusive insight.</p>
   </section>`;
@@ -227,6 +229,23 @@ function stoppagesSection() {
   </section>`;
 }
 
+// ---------- method: the defense proxy and what was left out of it (contract 1.6) ----------
+function defenseMethod() {
+  const tv = S.tendency_validation, dc = tv && tv.defense;
+  if (!dc) return "";                                  // an export from before contract 1.6
+  const units = dc.slices.filter((x) => x.scope !== "defense_team");
+  const better = units.filter((x) => x.methods.find((m) => m.method === x.shipped).verdict === "ahead").length;
+  const pickedBetter = units.some((x) => x.picked && x.picked.verdict === "ahead");
+  return `<section class="section"><h2>Defense: a proxy from outcomes</h2>
+    <div class="cols">
+      <div class="sheet"><h3>What a team report shows</h3><p>Seven things about opponents' possessions against a defense: where their shots came from (rim, paint, midrange, corner three, above-the-break three), how often they drew a foul, how often they turned it over. Each is set beside what the same opponents did against every other defense, so the row is about the defense and not about its schedule.</p></div>
+      <div class="sheet"><h3>What it cannot say</h3><p>Play-by-play shows how a possession ended and which five were on the floor. It does not show where defenders stood or who guarded whom. So this cannot identify a pick-and-roll coverage or any other scheme, and no row here names one. That takes tracking or video.</p></div>
+      <div class="sheet"><h3>Tested and left out</h3><p>The same rows were built for single five-man lineups and for the lineups that include one player. To be shown, such a row has to predict the second half of a season better than its team's own row. On the real seasons that decision was made on, it did not, so no report shows them. ${dc.available && units.length ? `The check is rerun on every export. Here, on ${seasonName(dc.season)}, it came out better in ${better} of ${units.length} comparisons${pickedBetter ? "" : ", and the few rows a report would have singled out did no better"}.` : "There is too little data here to rerun the check."} <a href="#scorecard">The numbers are on the scorecard.</a></p>
+        <p class="small muted">Not in this build: who guarded whom (per-game matchup data exists but is not read here) and league season-level defensive statistics.</p></div>
+    </div>
+  </section>`;
+}
+
 // ---------- team report: what the bench did (contract 1.5) ----------
 function benchSection(r) {
   const cd = r.coach_decisions;
@@ -253,6 +272,47 @@ function benchSection(r) {
     <div class="scroll"><table class="tv fit"><thead><tr><th>Player</th><th>Closed</th><th>Rate, ${lvl}% interval</th></tr></thead><tbody>
       ${c.players.map((x) => `<tr><th>${esc(player(x.player_id))}</th><td>${int(x.k)} of ${int(x.n)}</td><td><b>${pct(x.rate)}</b><br><span class="small muted">${pct(x.interval[0])} to ${pct(x.interval[1])}</span></td></tr>`).join("")}</tbody></table></div>`
     : `<p class="note plain">No game this season was within ${c.close_margin} points with ${mins} minutes left.</p>`}
+  </div>`;
+}
+
+// ---------- team report: defense, a proxy from outcomes (contract 1.6) ----------
+function defenseCheck() {
+  const tv = S.tendency_validation;
+  return tv && tv.defense && tv.defense.available ? tv.defense : null;
+}
+
+function defenseSection(r) {
+  const d = r.defense;
+  if (!d) return "";
+  const lvl = Math.round(d.interval_level * 100);
+  const maxAbs = Math.max(0.01, ...d.rows.flatMap((x) => x.interval.map(Math.abs))) * 1.08;
+  const X = (v) => (150 + (v / maxAbs) * 142).toFixed(1);
+  const rows = d.rows.map((x) => {
+    const up = x.deviation >= 0, col = !x.excludes_zero ? "#6E7580" : up ? "#2447D6" : "#C8253A";
+    const unit = x.outcome.head === "shot_family" ? "opponent shots" : "opponent possessions";
+    return `<li class="${x.excludes_zero ? "" : "weak"}">
+      <div class="what"><b>${esc(x.outcome.label)}</b>
+        <div class="nums">${pct(x.raw_rate, 1)} on ${int(x.n)} ${unit}; ${pct(x.expected_rate, 1)} expected from the same opponents.</div></div>
+      <div><span class="dev ${up ? "up" : "down"}">${pts(x.deviation)} pts</span>
+        <span class="small muted"> ${lvl}% interval ${pts(x.interval[0])} to ${pts(x.interval[1])}${x.excludes_zero ? "" : ", includes zero"}</span>
+        <svg class="ivl" viewBox="0 0 300 34" role="img" aria-label="Difference ${pts(x.deviation)} points, interval ${pts(x.interval[0])} to ${pts(x.interval[1])}, n ${x.n}">
+          <line class="axis" x1="4" y1="17" x2="296" y2="17"/><line class="zero" x1="150" y1="4" x2="150" y2="30"/>
+          <line class="bar" x1="${X(x.interval[0])}" y1="17" x2="${X(x.interval[1])}" y2="17" stroke="${col}"/>
+          <circle class="dot" cx="${X(x.deviation)}" cy="17" r="5.5" stroke="${col}"/></svg></div></li>`;
+  }).join("");
+  const dc = defenseCheck();
+  const held = dc && dc.coverage.find((c) => c.scope === "defense_team");
+  const ahead = dc ? dc.slices.filter((x) => x.scope === "defense_team").map((x) => ({ x, m: x.methods.find((m) => m.method === x.shipped) })) : [];
+  const short = { shot_profile: "shot locations", foul_drawn: "fouls drawn", turnover: "turnovers" };
+  const said = { ahead: "better", level: "no better", behind: "worse" };
+  const list = (a) => (a.length > 1 ? `${a.slice(0, -1).join(", ")} and ${a[a.length - 1]}` : a[0]);
+  const byVerdict = ["ahead", "level", "behind"].map((v) => [v, ahead.filter(({ m }) => m.verdict === v).map(({ x }) => short[x.outcomes])]).filter(([, a]) => a.length);
+  const checked = ahead.length ? ` Checked on the ${seasonName(dc.season)} season, fitted on its first half and asked about each game of the second. Against the opponents' habits alone, these rows predicted ${byVerdict.map(([v, a]) => `${list(a)} ${said[v]}`).join(", ")}${held ? `. The ${lvl}% intervals held ${pct(held.coverage_with_drift ?? held.coverage, 1)} of the second half's differences` : ""}. <a href="#scorecard">The table is on the scorecard.</a>` : "";
+  return `<div class="sheet"><h2 style="margin-bottom:4px">Defense: what opponents did against this team</h2>
+    <p class="muted" style="margin-top:0">${esc(seasonName(d.season))}. ${int(d.n_possessions)} opponent possessions in ${int(d.n_games)} games.</p>
+    <p>Each row sets what opponents did against this defense beside what was expected of them. Expected: ${esc(d.baseline.charAt(0).toLowerCase() + d.baseline.slice(1))}. So a defense gets no credit for a schedule of poor offenses, and none for fast breaks its own offense did or did not give away. The difference is pulled toward zero by an amount set from how much the league's defenses really differ.</p>
+    ${d.rows.length ? `<ul class="tend">${rows}</ul>` : `<p class="note plain">Not enough opponent possessions yet for a row.</p>`}
+    <p class="note plain">${esc(d.note)} Intervals include the opponents' own uncertainty${d.drift_included ? " and how much these differences moved between the two halves of the season before" : "; they do not allow for a defense changing, because there is no earlier season here to measure that on"}.${checked}</p>
   </div>`;
 }
 
@@ -307,6 +367,7 @@ async function renderTeam() {
     ${r.tendencies.length ? `<ul class="tend">${rows}</ul>` : `<p class="note plain">No situation has at least 25 possessions for this team yet. Ingest more games and run the export again.</p>`}
     <p class="note plain">${outro}</p>
   </div>
+  ${defenseSection(r)}
   ${benchSection(r)}`;
   document.querySelectorAll("[data-team]").forEach((b) => b.addEventListener("click", () => { S.teamId = Number(b.dataset.team); render(); }));
 }
@@ -517,7 +578,8 @@ function renderScorecard() {
   <p class="muted" style="margin-top:0">What a bench did at a stoppage, scored the same way: can it be anticipated better than a table of league rates? This says nothing about whether the decision was a good one. Trees only; rows are stoppages, fouls or players, not possessions.</p>
   ${sc.heads.filter((h) => isDecision(h.head)).map(sheet).join("")}` : ""}
   <p class="note plain">Intervals: ${esc(sc.bootstrap)}. Calibration pools every class: each dot is a band of predicted probabilities and how often those calls came true.</p>
-  ${tendencyCheck()}`;
+  ${tendencyCheck()}
+  ${defenseCheckTable()}`;
 }
 
 // ---------- scorecard: two models on the same possessions (contract 1.4) ----------
@@ -594,6 +656,42 @@ function tendencyCheck() {
     <div class="splitname"><h3>The rows a report would have shown</h3></div>
     <p>Picking each team's top ten from a couple of hundred candidates favours rows that got lucky. ${ship ? `For the top ten the report's method would have shown, ${lvl}% intervals held ${selText(ship)}.` : ""} ${old ? `For the top ten the old stand-in would have shown, ${selText(old)}.` : ""}</p>
     ${v.deviation.length ? `<p class="small muted">The interval drawn on a report row is for the deviation from baseline. Against the second half's deviation it held: ${v.deviation.map((d) => `${esc(d.label.toLowerCase())}, ${pct(d.coverage_with_drift ?? d.coverage, 1)} of ${int(d.n_cells)}`).join("; ")}.</p>` : ""}
+    <p class="note plain">Log-loss interval: ${esc(v.bootstrap)}. A verdict needs that whole interval on one side of zero.</p>
+  </div>`;
+}
+
+// ---------- scorecard: the defense proxy, checked (contract 1.6) ----------
+function defenseCheckTable() {
+  const tv = S.tendency_validation, v = tv && tv.defense;
+  if (!v) return "";
+  const head2 = `<h2 class="lookback">Defense rows, checked</h2>
+    <p class="muted" style="margin-top:0">A team report's defense rows are fitted on the first half of a season and asked for every opponent possession of the second.</p>`;
+  if (!v.available) return `${head2}<div class="sheet"><p class="note plain">Not available: ${esc(v.reason || "too little data")}.</p></div>`;
+  const lvl = Math.round(v.interval_level * 100), cls = { ahead: "model_better", level: "inconclusive", behind: "baseline_better" };
+  const short = { shot_profile: "Where shots came from", foul_drawn: "Fouls drawn", turnover: "Turnovers" };
+  const diff = (d) => `${signed(d.diff, 6)} (${signed(d.interval[0], 6)} to ${signed(d.interval[1], 6)})`;
+  const get = (x, id) => x.methods.find((m) => m.method === id);
+  const team = v.slices.filter((x) => x.scope === "defense_team"), units = v.slices.filter((x) => x.scope !== "defense_team");
+  const V = { ahead: "Ahead", level: "Level", behind: "Behind" };
+  const unitName = { defense_player: "Lineups with one player", defense_lineup: "One five-man lineup" };
+  const cov = (scope) => v.coverage.find((c) => c.scope === scope);
+  const tc = cov("defense_team");
+  return `${head2}
+  <div class="sheet">
+    <p>Season ${seasonName(v.season)}: ${int(v.n_games_first)} games to fit on, ${int(v.n_games_second)} to predict. The reference is what tonight's opponent usually does, with no defense in it. A defense row earns its place only if adding it predicts better than that (lower log-loss).</p>
+    <div class="splitname"><h3>Team rows</h3><span class="tag">in the report</span></div>
+    <div class="scroll"><table class="tv"><thead><tr><th>Opponents' possessions</th><th>Opponents' habits alone</th><th>With the defense row</th><th>Difference (95% interval)</th><th></th><th>Against the unadjusted rate</th></tr></thead><tbody>
+      ${team.map((x) => { const r = get(x, x.reference), m = get(x, x.shipped); return `<tr class="ship"><th>${short[x.outcomes]}<br><span class="small muted">${int(x.n_trials)} trials</span></th><td>${r.log_loss.toFixed(5)}</td><td>${m.log_loss.toFixed(5)}</td>
+        <td>${diff(m.vs_reference)}</td><td><span class="verdict ${cls[m.verdict]}">${V[m.verdict]}</span></td><td>${m.vs_unadjusted ? diff(m.vs_unadjusted) : ""}</td></tr>`; }).join("")}
+    </tbody></table></div>
+    <p class="small muted">The unadjusted rate is what the defense allowed in the first half, pooled toward the league, with no account of who it played. ${tc ? `The ${lvl}% interval on a report row held ${pct(tc.coverage, 1)} of the second half's differences as fitted${tc.coverage_with_drift !== null ? ` and ${pct(tc.coverage_with_drift, 1)} with the drift term` : ""} (${int(tc.n_cells)} rows).` : ""}${v.drift.available ? ` Drift was measured on ${seasonName(v.drift.season)}, never on the season being scored.` : ""}</p>
+    ${units.length ? `<div class="splitname"><h3>Narrower than a team</h3><span class="tag">not in the report</span></div>
+    <div class="scroll"><table class="tv"><thead><tr><th>Rows for</th><th>Opponents' possessions</th><th>The team's row</th><th>The unit's own row</th><th>Difference (95% interval)</th><th></th><th>Only the rows a report would single out</th></tr></thead><tbody>
+      ${units.map((x) => { const r = get(x, x.reference), m = get(x, x.shipped); return `<tr><th>${unitName[x.scope]}<br><span class="small muted">${int(x.n_cells)} cells</span></th><td>${short[x.outcomes]}<br><span class="small muted">${int(x.n_trials)} trials</span></td><td>${r.log_loss.toFixed(5)}</td><td>${m.log_loss.toFixed(5)}</td>
+        <td>${diff(m.vs_reference)}</td><td><span class="verdict ${cls[m.verdict]}">${V[m.verdict]}</span></td>
+        <td>${x.picked && x.picked.vs_reference ? `${diff(x.picked.vs_reference)} <span class="verdict ${cls[x.picked.verdict]}">${V[x.picked.verdict]}</span><br><span class="small muted">${int(x.picked.n_cells)} row${x.picked.n_cells === 1 ? "" : "s"}, ${int(x.picked.n_trials)} trials</span>` : `<span class="small muted">none cleared the bar</span>`}</td></tr>`; }).join("")}
+    </tbody></table></div>
+    <p class="small muted">Here the reference is the team's own row, applied whoever is on the floor. A lineup's row, or a player's, has to beat that to be worth showing. A possession counts once for each player on the floor who has a row. The last column asks the same question of only the rows a report would single out: those at least ${units[0].picked ? pct(units[0].picked.min_probability) : "90%"} likely, after the first half, to sit more than a point from the team's other possessions.</p>` : ""}
     <p class="note plain">Log-loss interval: ${esc(v.bootstrap)}. A verdict needs that whole interval on one side of zero.</p>
   </div>`;
 }
