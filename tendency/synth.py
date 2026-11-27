@@ -57,6 +57,9 @@ ASSIST_P = {"cutting": 0.97, "alley-oop": 1.0, "": 0.85, "pullup": 0.3, "step ba
             "driving floating": 0.5, "floating": 0.5, "running": 0.7, "putback": 0.0, "tip": 0.0}
 STYLE_QUIRK = (2, "q4", "pullup", 3.0)       # team index 2 takes three times its usual share of pull-ups in the fourth quarter
 QUICK_HOOK_TEAM = 5                          # step 2.4: this bench takes a player out after a foul more readily than the rest
+# Step 3.1: defenses that leave a mark, so the fingerprint has ground truth. Team index -> (what it changes, multiplier on the opponent's weight).
+DEF_QUIRKS = {6: ("turnover", 1.5), 0: ("rim", 0.6)}     # team index 7 stays the one with nothing planted
+RIM_PROTECTOR = (3, 4, 0.5)                  # team index 3: with player index 4 on the floor, opponents get to the rim half as readily
 
 
 def _team_id(i: int) -> int:
@@ -392,6 +395,9 @@ class GameSim:
                 pe = pe * np.array([1.0, 1.0, 1.8])
             if q_on and T["idx"] == 4:
                 pe = pe * np.array([1.0, 1.6, 1.0])
+            dq = DEF_QUIRKS.get(self.T[d]["idx"], (None, 1.0))
+            if dq[0] == "turnover":
+                pe = pe * np.array([1.0, 1.0, dq[1]])
             end = ENDS[int(r.choice(3, p=pe / pe.sum()))]
             if end == "turnover":
                 if r.random() < 0.06:
@@ -423,6 +429,10 @@ class GameSim:
                 pm = pm * np.array([1.8, 1, 1, 1, 1])
             if q_on and T["idx"] == 5:
                 pm = pm * np.array([1, 1, 1, 1, 1.7])
+            if dq[0] == "rim":
+                pm = pm * np.array([dq[1], 1, 1, 1, 1])
+            if self.T[d]["idx"] == RIM_PROTECTOR[0] and RIM_PROTECTOR[1] in self.on[d]:
+                pm = pm * np.array([RIM_PROTECTOR[2], 1, 1, 1, 1])
             fam = FAMS[int(r.choice(5, p=pm / pm.sum()))]
             is3 = fam in ("corner3", "above_break3")
             made = r.random() < MAKE_P[fam] * P["skill"]

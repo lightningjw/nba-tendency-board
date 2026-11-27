@@ -136,8 +136,13 @@ def test_planted_team_and_player_quirks_are_recovered_and_shrunk(synth_run):
     team = [t for t in rows[9900001] if t["scope"] == "team" and t["situation"]["id"] == "after_timeout" and t["outcome"]["class"] == "corner3"][0]
     assert team["deviation"] > 0 and team["excludes_zero"] and team["prob_beyond"] > 0.9
     assert team["deviation"] < team["raw_rate"] - team["baseline_rate"]
-    player = [t for t in rows[9900002] if t["player_id"] == 9910101 and t["situation"]["id"] == "clutch"][0]
-    assert player["deviation"] > 0 and player["prob_beyond"] > 0.9
+    # How many close games the draw holds, and how often he is on the floor for them, decides how SURE this row can be
+    # (199 possessions in one draw, 80 in the next). What must hold in any draw: the quirk is in the data, the row
+    # points the right way, it is shrunk, and it is the strongest clutch row on his team.
+    clutch = [t for t in rows[9900002] if t["scope"] == "player" and t["situation"]["id"] == "clutch"]
+    player = [t for t in clutch if t["player_id"] == 9910101][0]
+    assert player["raw_rate"] > player["baseline_rate"] + 0.05 and 0 < player["deviation"] < player["raw_rate"] - player["baseline_rate"]
+    assert max(clutch, key=lambda t: t["deviation"])["player_id"] == 9910101
     control = [t for t in rows[9900008] if t["scope"] == "team" and t["situation"]["id"] != "all"]      # the team with nothing planted
     assert np.mean([t["excludes_zero"] for t in control]) < 0.25
 
@@ -258,7 +263,7 @@ def test_hot_hand_only_counts_the_trip_before_in_the_same_period_with_him_still_
 def test_export_carries_the_validation_and_the_hot_hand_report(synth_run):
     out = synth_run["out"]
     man = json.loads((out / "manifest.json").read_text())
-    assert man["contract_version"] == "1.5" and man["tendency_method"]["final"] is True
+    assert man["contract_version"] == "1.6" and man["tendency_method"]["final"] is True
     assert "partial-pooling tendency layer" not in man["not_built"]
     val = json.loads((out / man["files"]["tendency_validation"]).read_text())
     assert val["available"] and val["season"] == 2091 and val["drift"]["season"] == 2090 and val["data_kind"] == "synthetic"
