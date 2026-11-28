@@ -148,6 +148,15 @@ def test_a_sentence_that_misstates_its_row_is_caught(i, old, new, says):
     assert says in why(changed(i, old, new))
 
 
+def test_each_rows_direction_has_to_follow_its_own_figure():
+    """Two rows that point opposite ways in one sentence: both words are there either way, so the order is what is checked."""
+    pace = "After a timeout the team's rim share of shots is 4.1 points {} baseline on 140 shots, and off a defensive rebound its late share of possessions is 2.8 points {} baseline on 1,073 possessions."
+    assert S.check([{"rows": [1, 2], "text": pace.format("above", "below")}], table()) == []
+    assert "after row 1's difference, 4.1, the next direction word has to be 'above'" in why([{"rows": [1, 2], "text": pace.format("below", "above")}])
+    wide = changed(2, "is 4.0 points above baseline", "is 4.0 points below baseline")        # an interval that includes zero still has a side
+    assert "after row 3's difference, 4.0, the next direction word has to be 'above'" in why(wide)
+
+
 def test_a_label_may_carry_a_word_that_would_otherwise_point_the_wrong_way():
     late = [{"rows": [2], "text": "Off a defensive rebound, late possessions (first action after 16 s or more) are 2.8 points below baseline on 1,073 possessions."}]
     arc = [{"rows": [4], "text": "In the two-for-one window (30 to 45 s left in the period), the team's above-the-break-three share of shots is "

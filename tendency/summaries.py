@@ -34,7 +34,7 @@ MAX_ATTEMPTS = 2                      # one draft, and one more that is shown wh
 MIN_ROWS_FOR_LLM = 3                  # a table shorter than this is its own summary
 TEMPLATE_ROWS = 3
 MAX_SENTENCES = 5
-MAX_WORDS = 150
+MAX_WORDS = 180                       # the prompt asks for under 140; a few words over is not a reason to discard a true summary
 MODES = ("keep", "llm", "none")
 
 OUT_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["sentences"], "properties": {
@@ -182,6 +182,18 @@ def _show(n) -> str:
     return str(n)
 
 
+def _direction_follows(text: str, diff: Decimal, direction: str) -> bool:
+    """Is the figure followed, before any other direction word, by the row's own? ("4.1 points above baseline")"""
+    low = re.sub(r"above[- ]the[- ]break", lambda m: " " * len(m.group()), text.lower())
+    for m in _NUM.finditer(low):
+        t = m.group().replace(",", "")
+        if _BARE.fullmatch(t) and Decimal(t) == diff:
+            nxt = re.search(r"\b(above|below)\b", low[m.end():])
+            if nxt and nxt.group(1) == direction:
+                return True
+    return False
+
+
 def check(sentences: list, table: dict) -> list[str]:
     """Why this summary cannot be shown above this table. An empty list means it can."""
     rows = {r["row"]: r for r in table["rows"]}
@@ -245,6 +257,8 @@ def check(sentences: list, table: dict) -> list[str]:
             size = Decimal(row["sample"].split()[0].replace(",", ""))
             if diff not in said:
                 why.append(f"{at}: give row {r}'s difference, {row['difference']}")
+            elif not _direction_follows(text, diff, direction):   # also holds a two-row sentence to each row's own direction
+                why.append(f"{at}: after row {r}'s difference, {diff}, the next direction word has to be '{direction}'")
             elif size not in said and not ends <= said:
                 why.append(f"{at}: row {r}'s difference needs its interval ({row['interval']}) or its sample ({row['sample']}) beside it")
             if row["interval_includes_zero"]:
