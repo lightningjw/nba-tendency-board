@@ -57,11 +57,17 @@ def build(poss: pd.DataFrame, games: list[dict]) -> pd.DataFrame:
     kind = "synthetic" if games and games[0].get("synthetic") else "real"
     sit_label = dict(SITUATIONS)
     seasons = sorted(int(s) for s in poss["season"].unique())
-    out = []
+    out, drifts = [], {}
     for season in seasons:
         ps = poss[poss["season"] == season]
-        earlier = [s for s in seasons if s < season]
-        drift = layer.estimate_drift(poss[poss["season"] == max(earlier)]) if earlier else None      # never measured on the season described
+        # How much cells move between halves is measured on another season, never on the one described: the one
+        # before it (what the team pages use), or for the first season on record the one after, so that two seasons
+        # set side by side carry intervals built the same way.
+        earlier, later = [s for s in seasons if s < season], [s for s in seasons if s > season]
+        other = max(earlier) if earlier else (min(later) if later else None)
+        if other not in drifts:
+            drifts[other] = layer.estimate_drift(poss[poss["season"] == other]) if other is not None else None
+        drift = drifts[other]
         has_drift = bool(drift) and any(v > 0 for v in drift["dev"].values())
         labels = {outcome_id(h, c): lab for h, c, _, _, lab in outcome_specs(layer._eligible(ps))}
         n_games = ps.groupby("off_team_id")["game_id"].nunique()
@@ -104,11 +110,34 @@ def build(poss: pd.DataFrame, games: list[dict]) -> pd.DataFrame:
     return df.sort_values(["season", "scope", "tricode", "situation", "outcome", "player_id"], kind="stable").reset_index(drop=True)
 
 
-def write(root: Path, poss: pd.DataFrame, games: list[dict], log=print) -> Path:
+def info(df: pd.DataFrame) -> dict:
+    """The manifest's `ask` block: what the table covers, and a few questions made from its own team and player names."""
+    from .ask import RULE, season_label
+    latest = df[df["season"] == df["season"].max()]
+    teams = latest.drop_duplicates("tricode").sort_values("tricode")["team_name"].tolist()
+    best = latest[(latest["scope"] == "player") & latest["estimated"].fillna(False)].sort_values(["n", "player_name"], ascending=[False, True])
+    examples = []
+    if teams:
+        a, b = teams[0], teams[min(1, len(teams) - 1)]
+        examples += [f"How often do the {a} get to the rim after a timeout?", "Which team shoots the most corner threes off turnovers?"]
+        if a != b:
+            examples.append(f"Compare the {a} and the {b} on fast-break chances.")
+        if df["season"].nunique() > 1:
+            examples.append(f"Did the {a} draw fouls more often last season than this season?")
+    if len(best):
+        examples.append(f"Does {best.iloc[0]['player_name']} finish more possessions in the fourth quarter?")
+    if teams:
+        examples.append(f"What play do the {teams[0]} run after a timeout?")
+    return {"rule": RULE, "seasons": [season_label(s) for s in sorted(df["season"].unique())], "n_cells": int(len(df)),
+            "n_estimated": int(df["estimated"].sum()), "examples": examples}
+
+
+def write(root: Path, poss: pd.DataFrame, games: list[dict], log=print) -> dict:
+    """Build the table, write it beside the possession table, and return the manifest's `ask` block."""
     df = build(poss, games)
     path = Path(root) / "processed" / FILE
     path.parent.mkdir(parents=True, exist_ok=True)
     df.to_parquet(path, index=False)
     est = int(df["estimated"].sum())
     log(f"ask table: {len(df):,} cells ({est:,} estimated, {len(df) - est:,} counted only) over {df['season'].nunique()} season(s) in {path}")
-    return path
+    return info(df)

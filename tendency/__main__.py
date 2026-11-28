@@ -11,6 +11,12 @@
     python -m tendency summarize data/real_export                  # machine-written team summaries into an export already on disk
                                                                    # (needs ANTHROPIC_API_KEY; --dry-run prints the request and sends nothing)
 
+Ask box (see tendency/ask.py):
+    python -m tendency ask-table --root data/real                  # write the table the ask box queries, from possessions already on disk
+    python -m tendency ask "How often do the Alders get to the rim after a timeout?" --root data/synthetic
+    python -m tendency serve --root data/synthetic                 # the service the app's Ask view calls (needs the `serve` extra)
+    python -m tendency ask-eval [--translator llm]                 # accuracy on the thirty test questions; llm needs ANTHROPIC_API_KEY
+
 Prospective log (see tendency/prospective.py):
     python -m tendency train --through 2026-11-16                  # freeze models on games up to that date
     python -m tendency predict [--date YYYY-MM-DD]                 # before tip-off: one pregame file per game (default: today, US Eastern)
@@ -92,6 +98,34 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--limit", type=int, default=None, help="only the first N teams (a cheap first try)")
     p.add_argument("--show", type=int, default=5, help="print this many summaries beside their tables when done")
     p.add_argument("--dry-run", action="store_true", help="print the exact request for one team and send nothing; needs no key")
+    def asking(p: argparse.ArgumentParser, root_default: str = "data/synthetic") -> None:
+        p.add_argument("--root", type=Path, default=REPO / root_default, help="data folder; the table is processed/ask_cells.parquet under it")
+        p.add_argument("--table", type=Path, default=None, help="path to ask_cells.parquet, in place of --root")
+        p.add_argument("--translator", choices=["auto", "llm", "rules"], default="auto",
+                       help="who turns the question into a query. auto (default): the model when ANTHROPIC_API_KEY is set, else keyword rules")
+        p.add_argument("--model", default=None, help="model for llm (default: claude-opus-5-5)")
+        p.add_argument("--effort", choices=["low", "medium", "high"], default=None, help="default: low")
+
+    p = sub.add_parser("ask-table", help="write the table the ask box queries, from the possession table already on disk")
+    p.add_argument("--root", type=Path, default=REPO / "data" / "real")
+    p = sub.add_parser("ask", help="answer one question from the ask table and print the query, the rows and the sentence")
+    p.add_argument("question")
+    asking(p)
+    p.add_argument("--json", action="store_true", help="print the whole response as JSON")
+    p.add_argument("--dry-run", action="store_true", help="print the exact request the model would be sent and send nothing; needs no key")
+    p = sub.add_parser("serve", help="run the ask service the app's Ask view calls")
+    asking(p)
+    p.add_argument("--host", default="127.0.0.1")
+    p.add_argument("--port", type=int, default=8000)
+    p.add_argument("--allow-origin", action="append", default=None, help="an origin allowed to call from a browser; repeat for more (default: any)")
+    p.add_argument("--daily-limit", type=int, default=None, help="questions sent to the model per UTC day (default 300)")
+    p = sub.add_parser("ask-eval", help="translate the thirty test questions and report how many became the expected query")
+    p.add_argument("--translator", choices=["llm", "rules"], default="rules")
+    p.add_argument("--model", default=None, help="model for llm (default: claude-opus-5-5)")
+    p.add_argument("--effort", choices=["low", "medium", "high"], default=None, help="default: low")
+    p.add_argument("--set", choices=["written", "reworded", "all"], default="all", dest="which",
+                   help="written: the thirty; reworded: the same thirty put another way by someone who had not seen the rules; all: both")
+    p.add_argument("--json", action="store_true", help="print every question's result as JSON")
     p = sub.add_parser("inspect", help="print one game's possessions beside the raw actions that produced them")
     p.add_argument("game_id", help="ten-digit game id, e.g. 0022500001")
     p.add_argument("--root", type=Path, default=REPO / "data" / "real")
@@ -105,7 +139,10 @@ def main(argv: list[str] | None = None) -> int:
     from .pipeline import PipelineError
     from .prospective import ProspectiveError
     from .summaries import MODEL, SummaryError
+    from .ask import AskError
     try:
+        if a.cmd in ("ask-table", "ask", "serve", "ask-eval"):
+            return _ask_commands(a)
         if a.cmd == "summarize":
             from .summaries import summarize_dir
             summarize_dir(a.dir, a.model or MODEL, a.force, a.limit, a.show, a.dry_run)
@@ -166,9 +203,68 @@ def main(argv: list[str] | None = None) -> int:
     except HostBlockedError as e:
         print(f"BLOCKED: {e}", file=sys.stderr)
         return 3
-    except (IngestError, PipelineError, NotEnoughData, ContractError, InspectError, ProspectiveError, SummaryError) as e:
+    except (IngestError, PipelineError, NotEnoughData, ContractError, InspectError, ProspectiveError, SummaryError, AskError) as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 2
+
+
+def _ask_commands(a) -> int:
+    import json
+
+    from . import ask
+    if a.cmd == "ask-table":
+        import pandas as pd
+
+        from . import ask_table
+        from .pipeline import PipelineError
+        proc = a.root / "processed"
+        if not (proc / "possessions.parquet").is_file():
+            raise PipelineError(f"no possession table under {proc}; run `python -m tendency build` (or `sample`) first")
+        ask_table.write(a.root, pd.read_parquet(proc / "possessions.parquet"), json.loads((proc / "games.json").read_text()))
+        return 0
+    if a.cmd == "ask-eval":
+        d, sets = ask.eval_sets()
+        tr = ask.RulesTranslator(d) if a.translator == "rules" else ask.LLMTranslator(d, model=a.model, effort=a.effort)
+        reports = {}
+        for name in (["written", "reworded"] if a.which == "all" else [a.which]):
+            if not sets.get(name):
+                continue
+            if not a.json:
+                print(f"\n{name} ({len(sets[name])} questions)")
+            reports[name] = ask.evaluate(tr, sets[name], log=None if a.json else print)
+            if not a.json:
+                print(ask.describe(reports[name]))
+        if a.json:
+            print(json.dumps(reports, indent=1, ensure_ascii=False))
+        return 0
+    from .ask_table import FILE
+    path = a.table or (a.root / "processed" / FILE)
+    if a.cmd == "serve":
+        try:
+            import uvicorn
+        except ImportError as e:
+            raise ask.AskError('the service needs FastAPI and uvicorn: pip install -e ".[serve]"') from e
+        from .ask_service import DAILY_LIMIT, create_app
+        app = create_app(path, a.translator, a.model, a.effort, a.allow_origin, a.daily_limit or DAILY_LIMIT)
+        uvicorn.run(app, host=a.host, port=a.port, log_level="info")
+        return 0
+    table = ask.Table(path)
+    if a.dry_run:
+        print(json.dumps(ask.request(a.question, table, a.model or ask.MODEL, a.effort or ask.EFFORT), indent=1, ensure_ascii=False))
+        return 0
+    from .ask_service import make_translator
+    out = ask.ask(" ".join(a.question.split()), table, make_translator(table, a.translator, a.model, a.effort))
+    if a.json:
+        print(json.dumps(out, indent=1, ensure_ascii=False))
+        return 0
+    by = out["translated_by"]
+    print(f"translated by: {'keyword rules (no model)' if by['kind'] == 'rules' else by['model']}")
+    print("query:        " + (json.dumps(out["query"], ensure_ascii=False) if out["query"] else (f"refused ({out['refusal']['reason']})" if out["refusal"] else "none")))
+    if out["sql"]:
+        print(f"sql:          {out['sql']['text']}\n              {out['sql']['params']}")
+    print(f"rows:         {out['n_rows']}" + (f" ({len(out['rows'])} shown)" if out["n_rows"] > len(out["rows"]) else ""))
+    print(f"answer:       {out['answer']}")
+    return 0
 
 
 if __name__ == "__main__":

@@ -16,6 +16,7 @@ SCHEMA_DIR = Path(__file__).resolve().parent.parent / "contract" / "schemas"
 SCHEMAS = ["manifest", "teams", "team_report", "games", "replay", "scorecard", "tendency_validation", "hot_hand"]      # what the app reads
 OPTIONAL_FILES = ["tendency_validation", "hot_hand"]       # contract 1.2; an older export has neither and is still valid
 LOG_SCHEMAS = ["prediction_log"]                                                    # written by `predict`, read by `score`
+SERVICE_SCHEMAS = ["ask_response"]                                                  # contract 1.8: what the ask service returns; not a file
 SUPPORTED_KEYWORDS = {"$id", "$ref", "$defs", "title", "type", "properties", "required", "additionalProperties",
                       "items", "enum", "const", "minimum", "maximum", "minItems", "maxItems"}
 
