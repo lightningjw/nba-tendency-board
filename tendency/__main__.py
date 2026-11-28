@@ -245,7 +245,7 @@ def _ask_commands(a) -> int:
         except ImportError as e:
             raise ask.AskError('the service needs FastAPI and uvicorn: pip install -e ".[serve]"') from e
         from .ask_service import DAILY_LIMIT, create_app
-        app = create_app(path, a.translator, a.model, a.effort, a.allow_origin, a.daily_limit or DAILY_LIMIT)
+        app = create_app(path, a.translator, a.model, a.effort, a.allow_origin, DAILY_LIMIT if a.daily_limit is None else a.daily_limit)
         uvicorn.run(app, host=a.host, port=a.port, log_level="info")
         return 0
     table = ask.Table(path)
