@@ -646,3 +646,133 @@ Profiled on 3,931 real games (2023-24 to 2026-27, 241 of them from the live feed
      60 of one game, which became a heave; it now takes the first eligible possession from 60 on.
 183. **A decision head needs 200 training rows with both outcomes**, or it is reported as not fitted with the
      reason. The synthetic sample has 293 closing rows.
+
+## Step 3.1: defense proxy fingerprints (2026-11-27)
+
+The roadmap has no step 2.5: Phase 2 ended at 2.4. "Continue onto step 2.5" was read as the next step in the
+roadmap's order, which is 3.1.
+
+### What a fingerprint is
+184. **Seven outcomes of an opponent possession**: the share of its shots from each of five areas (rim, paint,
+     midrange, corner three, above-the-break three), whether it ended in a foul drawn, whether it ended in a
+     turnover. Those are the three things the roadmap names. "Forced" turnovers are all opponent turnovers:
+     the possession table does not separate a steal from a travel, and the usual defensive turnover rate
+     counts both.
+185. **"Post-game" is read as "from finished games, looking back"**: a season-to-date description in the team
+     report, not a pregame prediction and not a per-game card. One game has about 100 opponent possessions,
+     which supports an interval of roughly eight points either side on rim share; that is not worth a row.
+186. **Expected is each opponent's own offense against every other defense.** For defense D against offense O
+     the bar is O's rate in the same season in its possessions against the other 28 or 29 teams, so D never
+     sets its own bar. Those rates are pooled across the 30 offenses with the layer's own estimator
+     (`eb_normal`), so an opponent seen for two games does not carry a wild rate. The pooling itself and the
+     start-type shifts below are also learned without D's possessions. A test rewrites everything that
+     happened against one defense and requires its expectations to be bit-identical.
+187. **Expected also follows how the possession started.** In 2025-26, 41% of shots on possessions that began
+     with a turnover came at the rim, against 27% after a made basket. How an opponent's possession starts is
+     decided by what the defense's own OFFENSE just did, so without this step a team that turns the ball over
+     is charged with the fast breaks it gave away. The step is the league's contrast between start types on
+     the logit scale, added to each opponent's rate, with an intercept solved so that the opponent's own mix
+     of start types returns its pooled rate. Tried with and without on 2024-25: the expectation alone predicts
+     second-half shot locations 0.0013 better with it (0.47193 against 0.47324); fouls and turnovers do not
+     care. The gain the defense row adds on top is the same either way. Kept.
+188. **A deviation is relative to the league's other defenses, not to an absolute.** If one defense is
+     extreme, every offense's rate "against everyone else" includes it, and the other 29 look slightly the
+     other way. With 30 teams that is a thirtieth of the effect. With eight simulated teams and large planted
+     effects it shows: the sample's control teams sit about a point off zero on the planted outcomes.
+
+### The estimate
+189. **The tendency layer does the pooling and the intervals, unchanged.** `defense.candidates` writes rows in
+     the layer's own format (count, trials, baseline logit, baseline variance, group) and `layer.estimate`
+     fits them: deviations for one outcome share a normal prior across the 30 defenses, centred on zero
+     because the expectation is the null. The opponents' sampling noise enters the interval as baseline
+     variance. `tendency_layer.py` was not edited.
+190. **Drift is measured the layer's way, on an earlier season**: the spread of a defense's deviation between
+     the two halves of that season that binomial noise does not explain (0.086 on the logit scale from
+     2024-25, about 1.6 points at a 25% rate). Without it the 90% intervals held 66% of second-half
+     deviations in 2025-26; with it 93% (69% and 90% the year before).
+191. **Same threshold as the offense rows**: a difference under one percentage point is not worth a scout's
+     time, and each row carries the probability it is beyond that. The section shows all seven rows in a
+     fixed order, so nothing is selected and no ranking is needed.
+
+### The check, and what it cut
+192. **Half-season check, scored game by game** (`defense_validation.py`). Everything is fitted on the first
+     615 games of a season; each method then gives a probability for every opponent possession of the last
+     615. Scoring by possession rather than by season total matters here because the opponent changes every
+     night. The reference is "what tonight's opponent usually does", with no defense in it: a defense row that
+     cannot beat that says nothing about the defense. Differences carry a 95% interval from resampling
+     second-half games.
+193. **Team rows ship.** On 2025-26 the pooled fingerprint beats the opponents-only reference on all three:
+     shot locations -0.000574 (-0.000748 to -0.000391), fouls drawn -0.000124 (-0.000225 to -0.000038),
+     turnovers -0.000407 (-0.000605 to -0.000212). On 2024-25: shot locations -0.000396 (-0.000608 to
+     -0.000186) and turnovers -0.000337 (-0.000556 to -0.000127) again clear zero; fouls drawn do not
+     (-0.000094, -0.000237 to +0.000035). The foul row stays, because the roadmap names it and its interval is
+     honest, and the README says it carried over in one season of two.
+194. **The opponent adjustment is most of the value for shot location.** Against the unadjusted number (what
+     the defense allowed, pooled toward the league, no account of the schedule) the fingerprint is 0.0037
+     better on 2025-26 shot locations and 0.0030 on 2024-25. For fouls and turnovers the adjustment is worth
+     0.0003 to 0.0004 in 2025-26 and nothing measurable in 2024-25.
+195. **Lineup rows were built, checked and cut.** The roadmap asks for the shot profile allowed "by a
+     lineup". Two kinds of unit were built with the same machinery: one five-man lineup (at least 100
+     defensive possessions), and the lineups that include one player. A unit's rate is pooled toward "the
+     same opponents, moved by this team's pooled deviation in its other possessions". The reference is the
+     team's own row applied whoever is on the floor. Neither kind beat it in either season on any of the
+     three outcome groups (six comparisons a season; every interval includes zero; player rows on 2025-26
+     shot locations -0.000021, -0.000043 to +0.000001). Five-man lineups are also simply thin: 51 in the
+     league had 100 possessions in the first half of 2025-26 and 25 in the second.
+196. **A second, sharper check, decided before looking: only the rows a report would single out.** An
+     average over 2,100 player rows could hide a few real ones, and a hand-built league with one strong rim
+     protector in ten teams does come out "level" on that average. So the same comparison was run on only the
+     rows at least 90% likely, after the first half and with drift, to sit more than a point from the team's
+     other possessions. For players' shot locations that is 13 rows in 2024-25 and 9 in 2025-26, and they
+     predicted the second half no better than the team's row either (+0.000079, -0.001337 to +0.001593;
+     -0.000582, -0.001410 to +0.000229). One lineup row and one player turnover row also cleared the bar, with
+     the same result. Full-season on/off contrasts look large and plausible (the biggest rim-share drops belong to
+     well-known rim protectors), but that is a description of who shared the floor with whom, not something
+     this data shows carrying forward. No report shows unit rows. The code stays so the check reruns on every
+     export, and the scorecard prints both versions of it.
+197. **Three configurations, chosen on 2024-25 and confirmed on 2025-26**: the start-type step (kept), units
+     pooled toward the team's raw deviation elsewhere (replaced: it threw away the league-level pooling and
+     was slightly worse than the team row), units pooled toward the team's pooled deviation (kept as the unit
+     estimate, then cut by the check). Nothing else was tuned.
+
+### Not built, and the join if it is wanted
+198. **Who guarded whom is on disk and is not read.** The roadmap expected per-game matchup data to need
+     stats.nba.com. It does not: the mirror's `matchups_{season}.csv` archives, already downloaded for player
+     names, hold it for all 1,230 games of each of the three complete seasons (about 986 partial possessions
+     a game, 9 opponents per defender-game). Checked rather than assumed: `person_id` is the OFFENSIVE player
+     (his matchup shot attempts track his shots in the possession table at r = 0.95; the other reading gives
+     0.51) and `matchups_person_id` the defender. Left out because the roadmap says to ship without it and a
+     "matchup spread" needs its own design and check. The join: `game_id` (as an integer) and the two person
+     ids against the possession table's game and lineups; spread per defender is the concentration of
+     `partial_possessions` across the opponents he shared the floor with, normalised by
+     `percentage_total_time_both_on`. There is no archive for 2026-27 yet. The archive's `switches_on` column
+     is all zeros and would be a scheme label besides; it must not be read.
+199. **The league's season-level defensive statistics are not used.** They are season aggregates with no
+     game-level filter, they need nba.com, and one of them counts how often a team plays a named scheme,
+     which rule 7 keeps out of this project's labels. If wanted, it joins on team and season and can only be
+     shown beside a fingerprint, never used to explain a row.
+200. **No coverage is named anywhere.** The section's note states the limit without a list of names, and a
+     test fails if a scheme word appears in any exported defense text. Shot "zones" are called areas in the
+     new text for the same reason.
+
+### Contract, app, simulator
+201. **Contract 1.6.** Team report: optional `defense` (note, baseline, season, counts, seven rows with expected
+     rate, allowed rate, pooled difference, interval, n, k and the probability it is beyond a point).
+     Tendency validation: optional `defense` (the half-season check: three scopes by three outcome groups,
+     every method's log-loss, the difference from the reference with its interval, the picked-rows check,
+     interval coverage, drift). A 1.5 export validates and renders; the app shows the new parts only when
+     they are there. "defense proxies" leaves the manifest's not-built list.
+202. **The pregame log is untouched.** `train`, `predict` and `score` import nothing from the defense modules
+     (a test checks). The fingerprint is computed at export time from the possession table that already
+     exists; no new processed file.
+203. **The simulator's defenses now leave a mark**: one team's opponents get to the rim less (odds x0.6), one
+     forces turnovers (x1.5), and one has a rim protector (x0.5 while he is on the floor). Nothing is planted
+     on fouls, so the sample has a built-in negative: its foul row is "level". The probabilities changed, so
+     every simulated game changed.
+204. **Two older tests were made less lucky, not looser.** Both leaned on how many close games a draw holds,
+     and the new draw holds fewer (48 against 57; the planted star was on the floor for 80 clutch possessions
+     against 199). The planted clutch quirk used to require a 90% probability on that one row; it now requires
+     what must hold in any draw: the quirk is in the raw data, the row points the right way, is shrunk, and is
+     the largest clutch row on his team. The scorecard test required more than 100 held-out rows for every
+     decision head; the closing head had 97 in one split, so the floor is 50.
+205. **No new dependency.**

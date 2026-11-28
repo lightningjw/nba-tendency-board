@@ -261,7 +261,7 @@ def test_new_baselines_are_probabilities_and_tempo_knows_how_the_possession_star
 def test_export_carries_five_heads_label_coverage_and_the_new_fields(synth_run):
     out = synth_run["out"]
     man = json.loads((out / "manifest.json").read_text())
-    assert man["contract_version"] == "1.5"
+    assert man["contract_version"] == "1.6"
     assert [h["id"] for h in man["heads"]][:5] == ["finisher", "ending_type", "shot_family", "action_style", "tempo"]
     assert [h["logged_before_tipoff"] for h in man["heads"]][:5] == [True, True, True, False, False]
     assert man["heads"][3]["classes"] == ACTION_STYLES and len(man["heads"][3]["class_labels"]) == 10

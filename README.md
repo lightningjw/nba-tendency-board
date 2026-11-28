@@ -7,7 +7,8 @@ how it ends, where the shot comes from, what kind of shot it is, and how early i
 prediction is scored against a simple baseline on games the model never saw, and the result is shown with its uncertainty whether it flatters the model or not. A tendency
 layer turns the same possessions into scouting-style deviations ("more corner threes after timeouts than this
 team's other possessions predict"), each with an interval and a sample size. A static web app sits on top: a
-scorecard, team tendency reports, a hot-hand report, and a possession-by-possession replay.
+scorecard, team tendency reports (offense, a defense proxy, and what the bench did at stoppages), a hot-hand
+report, and a possession-by-possession replay.
 
 **Live app:** https://nba-tendency-board-app.vercel.app/ (simulated games with placeholder teams; real results
 are in the table below, and [docs/terms-check.md](docs/terms-check.md) explains why real play-by-play is not
@@ -209,6 +210,66 @@ Not modelled, with the counts in the data: late deliberate fouls (2,544, two in 
 of the fourth quarter or overtime; the label is clean, but the step allowed three heads), challenges (979; the
 feed logs the timeout and not what was challenged or whether it worked), and the next substitution in general.
 
+## Defense, as a proxy from outcomes
+
+Play-by-play says how a possession ended and which five were on the floor. It does not say where defenders
+stood or who guarded whom. So this section **cannot identify a pick-and-roll coverage or any other scheme, and
+names none**; that takes tracking or video. What it can do is set what opponents did against a defense beside
+what those opponents usually do.
+
+Each team report has a "Defense" section with seven rows: the share of opponents' shots from each of five areas
+(rim, paint, midrange, corner three, above-the-break three), how often their possessions ended in a foul drawn,
+and how often in a turnover. For each row:
+
+- **Expected** is each opponent's own rate against every other defense that season, weighted by how often it
+  was faced, so a defense is credited for moving an opponent off its usual mix and not for a schedule of poor
+  offenses. It also follows how the possession started: 41% of shots off a turnover come at the rim against 27%
+  after a made basket, and whether an opponent starts off a turnover is the doing of the defense's own offense.
+- **The difference** is pooled across the 30 defenses by the tendency layer, with a 90% interval that includes
+  the opponents' own uncertainty and how much these differences moved between the halves of the season before.
+
+The check is the tendency layer's: fit on the first 615 games of a season, then give a probability for every
+opponent possession of the last 615. The reference is what tonight's opponent usually does, with no defense in
+it. A defense row earns its place only by beating that.
+
+| Opponents' possessions | Season | Trials | Opponents alone | With the defense row | Difference (95% interval) | Against the unadjusted rate |
+|---|---|---|---|---|---|---|
+| Where shots came from | 2025-26 | 461,085 | 0.47072 | 0.47015 | -0.000574 (-0.000748 to -0.000391) | -0.003693 (-0.004062 to -0.003330) |
+| Fouls drawn | 2025-26 | 121,647 | 0.31708 | 0.31696 | -0.000124 (-0.000225 to -0.000038) | -0.000306 (-0.000475 to -0.000119) |
+| Turnovers | 2025-26 | 121,647 | 0.41440 | 0.41400 | -0.000407 (-0.000605 to -0.000212) | -0.000367 (-0.000513 to -0.000226) |
+| Where shots came from | 2024-25 | 465,955 | 0.47193 | 0.47153 | -0.000396 (-0.000608 to -0.000186) | -0.002959 (-0.003373 to -0.002561) |
+| Fouls drawn | 2024-25 | 121,351 | 0.30508 | 0.30499 | -0.000094 (-0.000237 to +0.000035) | +0.000066 (-0.000074 to +0.000198) |
+| Turnovers | 2024-25 | 121,351 | 0.40693 | 0.40659 | -0.000337 (-0.000556 to -0.000127) | -0.000067 (-0.000268 to +0.000134) |
+
+Log-loss, lower is better; a shot is five trials, one per area. The unadjusted rate is what the defense allowed
+in the first half, pooled toward the league, with no account of who it played.
+
+- **Shot locations and turnovers carry over in both seasons. Fouls drawn carry over in one.** The foul row is
+  shown anyway, with its interval; read it as the weakest of the seven.
+- **The gains are small**, as everywhere in this project: knowing the defense is worth about a thousandth of
+  what knowing the opponent's offense and the way the possession started is worth.
+- **Adjusting for the opponent is most of the value for shot location** (the last column) and little or none
+  for fouls and turnovers.
+- **How big the rows are.** Across the 30 teams in 2025-26 the rim row runs from -7.6 to +4.6 points with a 90%
+  interval about 3.1 points either side; the foul row from -0.9 to +1.4, about 1.3 either side. Of the 210
+  rows, 27 have an interval clear of zero.
+- **The intervals needed the drift term.** Fitted on the first half of 2025-26, 90% intervals held 66% of the
+  second half's differences as fitted and 93% with it (69% and 90% a year earlier).
+
+**Lineup rows were built, checked and left out.** The same rows were made for single five-man lineups and for
+the lineups that include one player, each pooled toward its team's row. Asked to predict the second half, they
+did no better than the team's own row in any of twelve comparisons over the two seasons (for players' shot
+locations in 2025-26: -0.000021, -0.000043 to +0.000001). An average over 2,100 player rows could hide a few
+real ones, so the same question was put to only the rows a report would single out, those at least 90% likely
+to sit a point away from the team's other possessions. For players' shot locations that is 13 rows in 2024-25
+and 9 in 2025-26, and they did no better either (+0.000079, -0.001337 to +0.001593; -0.000582, -0.001410 to
++0.000229). Two other rows cleared that bar in the two seasons, with the same result. A full season's on/off
+contrasts look large and name the players one would expect, but that describes who shared the floor with whom.
+No report shows them; the scorecard shows the check.
+
+Not used: who guarded whom. The mirror's matchup archives have it for every game of the three complete seasons
+and are already on disk; nothing reads them yet (`NEXT.md`).
+
 ## Limits
 
 - **Retrospective so far.** The table was computed after the games were played. The stricter test is built
@@ -222,6 +283,10 @@ feed logs the timeout and not what was challenged or whether it worked), and the
 - **No play calls, no defensive coverages.** Play-by-play records what ended a possession, not the set that was
   called or how a pick-and-roll was guarded. Nothing here predicts or implies them. Teams with tracking and
   video have richer labels; the point is the method, not exclusive insight.
+- **Defense rows are a proxy from outcomes.** They say what opponents did against a team relative to what
+  those opponents usually do, on the team's possessions as a whole. They do not say how the team defends, and
+  they are measured against the opposing team's offense, not the five it had on the floor. Rows for a lineup
+  or a player did not survive their check and are not shown.
 - **Coach decisions are descriptions.** The three decision heads say what a bench did and how well that can
   be anticipated. They do not say what it should have done, and a timeout the scorer charged is
   indistinguishable from one a coach asked for when the rules were about to stop play (those stoppages are left
@@ -366,6 +431,8 @@ tendency/             pipeline package
   hot_hand.py         after a make or a miss: who finishes the next possession, and what it scores
   stoppages.py        the dead-ball table: one row per stoppage, with both fives, the run, and what each bench did
   coach.py            three coach decisions read off it, their baselines, and the report's bench section
+  defense.py          defense proxy rows: what opponents did against what they usually do; no scheme is named
+  defense_validation.py  fit on half a season, predict each game of the other half, against the opponents alone
   export.py           writes and validates the contract JSON
   bulk.py             whole seasons from the GitHub mirror; derives the boxscore the archive lacks
   teams.py            the 30 franchises by team id (city, nickname)
@@ -375,15 +442,16 @@ tendency/             pipeline package
 scripts/              fetch_nba_api.py and nightly.sh, for your own machine only
 docs/                 terms check, screenshot, release notes
 tests/                pytest: segmentation edge cases, leakage, ingest, models, contract, prospective log, tendency layer,
-                      stoppages and coach decisions
+                      stoppages and coach decisions, defense rows
 app/                  static front end (no build step); app/data is the bundled sample export
 ```
 
 ## The app
 
-Five views: Method (what it does, what the feed can label, the dead-ball table, and its limits), Team report
-(tendencies, then what the bench did at stoppages), Replay with "guess before the model", Scorecard
-(possession predictions, coach decisions, and the tendency layer's half-season check), and Hot hand.
+Five views: Method (what it does, what the feed can label, the dead-ball table, the defense proxy, and its
+limits), Team report (tendencies, the defense rows, then what the bench did at stoppages), Replay with "guess
+before the model", Scorecard (possession predictions, coach decisions, and the half-season checks of the
+tendency layer and the defense rows), and Hot hand.
 It is a plain static site: host the `app/` folder anywhere (GitHub Pages works). Served over HTTPS it installs
 to a phone home screen and works offline after the first load.
 
@@ -395,5 +463,7 @@ pipeline sets that from a marker inside the raw files, so synthetic output canno
 `python -m tendency sample` simulates 224 games between eight placeholder teams over two fake seasons (2090 and
 2091). A few situational quirks are planted (`QUIRKS` in `tendency/synth.py`) so the team report has ground truth
 to recover; a test checks that it does. Each team's habits also shift at mid-season, so the tendency layer's
-drift term has something to measure. Scorecard numbers on this data show that the evaluation code runs. They
+drift term has something to measure. Three defenses leave a mark as well (one keeps opponents from the rim, one
+forces turnovers, one has a rim protector), and none does anything about fouls, so the sample's defense check has
+a row that should come out level and does. Scorecard numbers on this data show that the evaluation code runs. They
 say nothing about whether the models beat their baselines on NBA games.

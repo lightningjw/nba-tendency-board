@@ -431,6 +431,319 @@
           }
         }
       }
+    },
+    "defense": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "available",
+        "reason",
+        "season",
+        "interval_level",
+        "split",
+        "n_games_first",
+        "n_games_second",
+        "bootstrap",
+        "drift",
+        "slices",
+        "coverage"
+      ],
+      "properties": {
+        "available": {
+          "type": "boolean"
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "season": {
+          "type": "integer"
+        },
+        "interval_level": {
+          "type": "number",
+          "minimum": 0.5,
+          "maximum": 0.999
+        },
+        "split": {
+          "type": "string"
+        },
+        "n_games_first": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "n_games_second": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "bootstrap": {
+          "type": "string"
+        },
+        "drift": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "available",
+            "season",
+            "n_games",
+            "rate"
+          ],
+          "properties": {
+            "available": {
+              "type": "boolean"
+            },
+            "season": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "n_games": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "rate": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "scope",
+                  "label",
+                  "sd",
+                  "n_cells"
+                ],
+                "properties": {
+                  "scope": {
+                    "enum": [
+                      "defense_team",
+                      "defense_player",
+                      "defense_lineup"
+                    ]
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "sd": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "n_cells": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          }
+        },
+        "slices": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "scope",
+              "scope_label",
+              "outcomes",
+              "outcomes_label",
+              "n_cells",
+              "n_trials",
+              "reference",
+              "shipped",
+              "methods",
+              "picked"
+            ],
+            "properties": {
+              "scope": {
+                "enum": [
+                  "defense_team",
+                  "defense_player",
+                  "defense_lineup"
+                ]
+              },
+              "scope_label": {
+                "type": "string"
+              },
+              "outcomes": {
+                "enum": [
+                  "shot_profile",
+                  "foul_drawn",
+                  "turnover"
+                ]
+              },
+              "outcomes_label": {
+                "type": "string"
+              },
+              "n_cells": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "n_trials": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "reference": {
+                "type": "string"
+              },
+              "shipped": {
+                "type": "string"
+              },
+              "methods": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "method",
+                    "label",
+                    "log_loss",
+                    "vs_reference",
+                    "verdict",
+                    "vs_unadjusted"
+                  ],
+                  "properties": {
+                    "method": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "log_loss": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "vs_reference": {
+                      "$ref": "#/$defs/defense_diff"
+                    },
+                    "verdict": {
+                      "enum": [
+                        "ahead",
+                        "level",
+                        "behind",
+                        null
+                      ]
+                    },
+                    "vs_unadjusted": {
+                      "$ref": "#/$defs/defense_diff"
+                    }
+                  }
+                }
+              },
+              "picked": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "additionalProperties": false,
+                "required": [
+                  "min_probability",
+                  "n_cells",
+                  "n_trials",
+                  "vs_reference",
+                  "verdict"
+                ],
+                "properties": {
+                  "min_probability": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "n_cells": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "n_trials": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "vs_reference": {
+                    "$ref": "#/$defs/defense_diff"
+                  },
+                  "verdict": {
+                    "enum": [
+                      "ahead",
+                      "level",
+                      "behind",
+                      null
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "coverage": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "scope",
+              "label",
+              "n_cells",
+              "coverage",
+              "coverage_with_drift"
+            ],
+            "properties": {
+              "scope": {
+                "enum": [
+                  "defense_team",
+                  "defense_player",
+                  "defense_lineup"
+                ]
+              },
+              "label": {
+                "type": "string"
+              },
+              "n_cells": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "coverage": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "coverage_with_drift": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 1
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "defense_diff": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "diff",
+        "interval"
+      ],
+      "properties": {
+        "diff": {
+          "type": "number"
+        },
+        "interval": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "number"
+          }
+        }
+      }
     }
   }
 }

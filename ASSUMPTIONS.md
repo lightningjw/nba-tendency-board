@@ -212,6 +212,41 @@ Assumed, and worth knowing:
 - **A player's seconds are game-clock seconds between logged substitutions**, so they inherit any substitution
   the feed logged late.
 
+## Defense proxies (step 3.1, 2026-11-27): what was checked, and what is assumed
+
+Checked on the three complete seasons (3,690 games):
+- **How a possession starts moves where its shot comes from.** Rim share of shots in 2025-26: 41% off a
+  turnover, 32% off a defensive rebound, 27% after a made basket or a free throw. Turnover and foul rates barely
+  move with it (13.6% to 15.2%; 9.3% to 10.4%, apart from the first possession of a period).
+- **The defending five is known on all but 16 possessions.** Those count for the team's row and for no lineup.
+- **Five-man lineups are thin.** In 2025-26 a team has a median of 8 lineups with 100 defensive possessions and
+  3 with 200; 22% of possessions are played by a lineup with at least 100. Across the league, 51 lineups reach
+  100 in the first half of the season and 25 in the second; 26 reach 100 in both.
+- **The matchups archive** (not used; see DECISIONS.md 198): one row per offensive player and defender per
+  game, 1,230 games a season. `person_id` is the offensive player and `team_id` is his team, checked against
+  shot counts in the possession table. In the 2025-26 file `switches_on`, `help_*` and
+  `matchup_potential_assists` are all zero.
+
+Assumed, and worth knowing:
+- **Expected is the opposing TEAM's offense, not the five it had on the floor.** A defense's starters mostly
+  face starters. Team rows average over that; it is one reason a lineup's or a player's row is hard to read,
+  and those rows are not shown.
+- **Expected comes from the same season to date.** Twenty games in, an opponent's "usual" is twenty games of
+  it, pooled toward the league. The interval carries that.
+- **The start-type step is one league-wide contrast.** Every offense is taken to gain the same amount (on the
+  logit scale) from starting off a turnover. Start types are made basket, defensive rebound, turnover, and
+  everything else together (free throws, period starts).
+- **Rates are combined on the logit scale at the level of a team's whole set of possessions**, not possession
+  by possession: the expected rate is the mean of the per-possession expectations, and the deviation is the
+  gap between its logit and the observed rate's. With effects of a few points the difference is negligible.
+- **A foul drawn is a possession that ended at the line.** A non-shooting foul before the bonus does not end a
+  possession and is not counted. A turnover is any turnover, forced or not.
+- **Home and away, rest, and garbage time are not adjusted for.** Over a season a defense's opponents are
+  about half at home.
+- **Deviations are relative to the other defenses in the league** (DECISIONS.md 188).
+- **Possessions in one game are treated as independent** when the interval is computed. The drift term, which
+  is everything the binomial does not explain between two halves of a season, absorbs some of what that misses.
+
 ## Verified from documentation only (nba_api docs, not a live file)
 
 - Endpoints: `cdn.nba.com/static/json/liveData/playbyplay/playbyplay_{gameId}.json` and
