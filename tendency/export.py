@@ -22,8 +22,9 @@ from .tendency_layer import METHOD, THRESHOLD, estimate_drift, team_reports
 from . import coach as coach_mod
 from . import defense as defense_mod
 from . import defense_validation
+from . import summaries as summaries_mod
 
-NOT_BUILT = ["live mode", "ask box", "LLM-written summaries"]
+NOT_BUILT = ["live mode", "ask box"]
 TENDENCY_NOTE = ("Deviations are estimated on the logit scale with partial pooling: a team's rate against the league, its rate in a situation "
                  "against its other possessions, a player's share against what his usage and the four teammates on the floor predict. "
                  "Intervals include the baseline's own uncertainty and how much tendencies moved between the halves of an earlier season. "
@@ -84,7 +85,8 @@ def _none(v):
 
 def export_all(out: Path, poss: pd.DataFrame, games: list[dict], run: ModelRun, synthetic: bool,
                max_replays: int = 30, fields_verified: bool = False, log=print, predictions: Path | None = None,
-               coach: "coach_mod.CoachRun | None" = None, stops: pd.DataFrame | None = None) -> dict:
+               coach: "coach_mod.CoachRun | None" = None, stops: pd.DataFrame | None = None,
+               summaries: str = "keep", summary_model: str = summaries_mod.MODEL, summary_client=None) -> dict:
     """Write manifest, teams, games, scorecard, team reports and replays into `out`.
 
     `coach` and `stops` are the step 2.4 decision heads and the dead-ball table they were read from.
@@ -93,11 +95,16 @@ def export_all(out: Path, poss: pd.DataFrame, games: list[dict], run: ModelRun, 
     Each team report also gets a "Defense" section (step 3.1, `defense.py`): what its opponents did
     against what they usually do. Its half-season check goes into tendency_validation.json.
 
+    `summaries` chooses the written summary above each tendency table (step 3.2, `summaries.py`): "keep" reuses a
+    machine-written one already in `out` when its table has not changed and writes the templated one otherwise,
+    with no network; "llm" also asks the model where there is nothing to reuse; "none" leaves summaries out.
+
     `predictions` is the prospective log folder (`predict` / `score`). Without it, or when it holds
     nothing scored yet, the scorecard carries an empty prospective block.
     """
     kind = "synthetic" if synthetic else "real"
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    writer = summaries_mod.Writer(summaries, summaries_mod.existing(out), summary_client, summary_model, log)     # read before the folder is cleared
     if out.exists():
         for sub in ("team_reports", "replays", "schemas"):
             shutil.rmtree(out / sub, ignore_errors=True)
@@ -139,6 +146,9 @@ def export_all(out: Path, poss: pd.DataFrame, games: list[dict], run: ModelRun, 
             rep["coach_decisions"] = decisions[t["team_id"]]
         if t["team_id"] in fingerprints:
             rep["defense"] = fingerprints[t["team_id"]]
+        written = writer.write(rep)
+        if written is not None:
+            rep["summary"] = written
         validate(rep, "team_report", f"team report {t['team_id']}")
         _dump(out / "team_reports" / f"{t['team_id']}.json", rep)
 
@@ -259,9 +269,13 @@ def export_all(out: Path, poss: pd.DataFrame, games: list[dict], run: ModelRun, 
         manifest["heads"] += coach_mod.manifest_heads()
         checks = {k: sum(int(g.get(k, 0)) for g in games) for k in ("pf_checks", "pf_agree")}
         manifest["stoppages"] = coach_mod.stoppage_profile(stops, checks, coach.tables)
+    if writer.done:
+        manifest["summaries"] = summaries_mod.tally(writer.done)
     validate(manifest, "manifest")
     _dump(out / "manifest.json", manifest)
     counts = validate_export_dir(out)
+    if writer.done:
+        log(summaries_mod.describe(manifest["summaries"]))
     pro = scorecard["prospective"]
     log(f"export: wrote and validated {sum(counts.values())} contract files in {out} ({kind}); prospective log: "
         + (f"{pro['n_games']} games on {pro['n_dates']} dates ({pro['mode']})" if pro["available"] else "empty"))

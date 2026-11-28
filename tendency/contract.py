@@ -58,6 +58,10 @@ def validate_export_dir(out: Path) -> dict:
         rep = check(out / files["team_reports_dir"] / f"{t['team_id']}.json", "team_report")
         if rep["data_kind"] != kind:
             raise ContractError(f"team report {t['team_id']} data_kind differs from the manifest")
+        from .summaries import verify                        # contract 1.7: a summary has to be about the table beside it
+        why = verify(rep)
+        if why:
+            raise ContractError(f"team report {t['team_id']}: its summary does not match its table:\n" + "\n".join(f"  {w}" for w in why[:8]))
     for g in games["games"]:
         rep = check(out / files["replays_dir"] / f"{g['game_id']}.json", "replay")
         if rep["data_kind"] != kind:

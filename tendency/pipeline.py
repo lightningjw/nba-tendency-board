@@ -102,7 +102,8 @@ def build_possessions(root: Path, log=print, stoppages: bool = False) -> tuple[p
 
 
 def run(root: Path, out: Path, max_replays: int = 30, fields_verified: bool = False, log=print, predictions: Path | None = None,
-        transformer: bool | None = None, transformer_epochs: int | None = None) -> dict:
+        transformer: bool | None = None, transformer_epochs: int | None = None,
+        summaries: str = "keep", summary_model: str | None = None, summary_client=None) -> dict:
     """Everything after ingest. `transformer`: None trains the experimental transformer when PyTorch is installed,
     True insists on it, False skips it. `transformer_epochs` caps its training (tests use it to stay quick)."""
     poss, games = build_possessions(root, log, stoppages=True)
@@ -122,4 +123,6 @@ def run(root: Path, out: Path, max_replays: int = 30, fields_verified: bool = Fa
     from .coach import run_coach
     stops = pd.read_parquet(root / "processed" / "stoppages.parquet")
     coach = run_coach(stops, pd.read_parquet(root / "processed" / "player_games.parquet"), model_run.splits, log)
-    return export_all(out, poss, games, model_run, synthetic, max_replays, fields_verified, log, predictions, coach=coach, stops=stops)
+    from .summaries import MODEL
+    return export_all(out, poss, games, model_run, synthetic, max_replays, fields_verified, log, predictions, coach=coach, stops=stops,
+                      summaries=summaries, summary_model=summary_model or MODEL, summary_client=summary_client)
