@@ -105,12 +105,13 @@
   written by a model that is sent that table and nothing else (no team name, players as placeholders), checked
   sentence by sentence against the rows it cites, and replaced by three templated sentences when it fails.
   Contract 1.7.
-- **Not done, and it is the first thing to do: no request has been sent to the API.** There was no key here.
-  Every summary in the bundled sample and in the real exports is the templated one.
+- **First real run done 2026-11-27** on `data/real_export`: 30 of 30 written by `claude-opus-5-5` on the first
+  draft, 0 discarded, none templated (DECISIONS.md 230 to 234). To repeat it after a rebuild changes a table:
   1. `pip install -e ".[llm]"` and `export ANTHROPIC_API_KEY=...` (in the shell only).
   2. `python -m tendency summarize data/real_export --dry-run` prints the exact request for one team.
-  3. `python -m tendency summarize data/real_export --limit 3`, read the three, then run it without `--limit`.
-     It prints five summaries beside their tables and how often the check discarded a draft.
+  3. `python -m tendency summarize data/real_export` asks only for the teams whose table changed.
+- The bundled sample (`app/data`, synthetic) still carries templated summaries. `python -m tendency summarize
+  app/data`, then commit, would replace them.
 - Left out:
   - The defense rows and the bench section are not summarised. The table is the offense rows only.
   - The check cannot judge whether the right rows were chosen or whether a sentence reads well (DECISIONS.md 214).

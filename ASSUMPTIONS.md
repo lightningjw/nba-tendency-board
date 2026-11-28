@@ -249,11 +249,10 @@ Assumed, and worth knowing:
 
 ## Written summaries (step 3.2, 2026-11-27)
 
-- **Not verified against the live API.** The request was built from the SDK's documentation and driven through
-  the installed SDK (2.14) against a local transport, which checks what is sent and how a reply is read. It
-  does not check that the API accepts the request. In particular the combination of a JSON output format with
-  the server-side fallback option has not been tried; if the first real run is turned down for it, remove
-  `betas` and `fallbacks` from `summaries.request` and call `cl.messages.create`.
+- **Verified against the live API by one run of 30 requests (2026-11-27).** The API accepted the request as
+  built, a JSON output format together with the server-side fallback option, and every reply parsed. Not
+  exercised by that run, because none of it happened: the retry request, a refusal, a reply cut off at the
+  token limit, and a reply from a fallback model. Those paths are covered only by the fake client in the tests.
 - **Player names are found by their capital letters.** The check treats a capitalised word that is not in the
   cited rows as a name. A name written in lower case would not be seen.
 - **A player row's label is "<name>: share of finishes while on the floor".** The table splits on the first
