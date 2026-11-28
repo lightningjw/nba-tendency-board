@@ -259,6 +259,25 @@ Assumed, and worth knowing:
   colon and a space. A player name containing ": " would be split in the wrong place; none does.
 - **A summary speaks of "the team".** The model is never given the team's name, so no sentence can use it.
 
+## The ask box (step 3.3, 2026-11-28)
+
+- **Not verified against the live API.** The request was built from the SDK's documentation and driven through
+  the installed SDK against a local transport. Three things in it have not met the API: two tools with
+  `strict` schemas that use `anyOf` with `null`, `tool_choice` `auto` with parallel calls off, and
+  `output_config.effort` `low`. If the first real question is turned down, `python -m tendency ask "..."
+  --translator llm` prints the API's reason; the request is built in one place, `ask.request`.
+- **`tool_choice` cannot be forced on this model family**, by the API guidance. The code does not rely on a
+  call coming back: no call is a failure, never an answer.
+- **Two rows being compared are treated as independent** when the interval for their difference is made. Two
+  teams share a prior and two seasons share a roster, so that interval is a little too narrow or too wide.
+- **A name matches when all of its words are in a player's name**, after accents and case are removed. "Curry"
+  matches two players and is asked again; a misspelt name matches nobody.
+- **The keyword translator reads "Curry" as no player at all** and falls through to a league ranking. It is
+  the baseline, and its response shows the query it ran.
+- **A page served over https calling `http://127.0.0.1`** is allowed by Chrome and Firefox and may be blocked by
+  Safari. Serving the app locally (`python -m http.server`) avoids the question.
+- **The daily cap is per process.** Two workers have two caps, and a restart resets the count.
+
 ## Verified from documentation only (nba_api docs, not a live file)
 
 - Endpoints: `cdn.nba.com/static/json/liveData/playbyplay/playbyplay_{gameId}.json` and

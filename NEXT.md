@@ -25,7 +25,6 @@
 | Stub | Phase | Slots in at |
 |---|---|---|
 | `live.serve_live` | 3 | FastAPI service that serves the replay contract for a game in progress |
-| `llm.question_to_query` | 3 | the ask box: turns a question into a query over the tendency tables; never answers from memory |
 
 ## Step 2.1, done 2026-11-23: the tendency layer (DECISIONS.md 86-109)
 - `tendency/tendency_layer.py` replaces the stand-in in the export. `tendencies.py` stays, only as the thing the
@@ -118,6 +117,26 @@
   - No batch requests and no caching of the prompt: thirty short requests did not seem to need either.
   - Summaries are in English and assume the labels the pipeline writes today; a new label with a capitalised
     or numeric word in it is handled, a label that reads badly mid-sentence is not.
+
+## Step 3.3, done 2026-11-28: the ask box (DECISIONS.md 235 onward)
+- `tendency/ask.py`, `ask_table.py`, `ask_service.py`, `prompts/ask_translate.txt`: a question becomes one
+  lookup in `processed/ask_cells.parquet`, DuckDB runs it, and a fixed template writes one sentence from the
+  rows. Six fixed refusals. The app has an Ask view behind a service address. Contract 1.8.
+- **Not done, and it is the first thing to do: the model has not translated a question through the API.**
+  There was no key here. The keyword baseline is measured (27 of 30 on the written questions, 14 of 30 on the
+  reworded ones). The model has to beat that:
+  1. `pip install -e ".[llm,serve]"` and `export ANTHROPIC_API_KEY=...` (in the shell only).
+  2. `python -m tendency ask "How often do the Celtics get to the rim after a timeout?" --root data/real --dry-run`
+     prints the exact request and sends nothing.
+  3. `python -m tendency ask-eval --translator llm` translates the sixty questions (about a dollar) and prints
+     the same report as the baseline's. Add `--model claude-haiku-5-5` to see whether the cheap model is enough.
+  4. `python -m tendency serve --root data/real`, then set `http://127.0.0.1:8000` in the app's Ask view.
+- Left out:
+  - Deployment. The recommendation and its cost are in DECISIONS.md 271; nothing is deployed.
+  - Defense rows, coach decisions and the hot-hand table are not in the ask table.
+  - Questions that need two outcomes, two situations or all threes together are refused, not split.
+  - No conversation: each question stands alone, so "and last season?" is not understood.
+  - The answer sentence is a template. It is correct and it is stiff.
 
 ## Known weaknesses worth fixing early
 - Timeouts-left and the penalty flag use simplified rules (see ASSUMPTIONS.md).

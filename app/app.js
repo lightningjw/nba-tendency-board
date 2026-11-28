@@ -424,7 +424,7 @@ function askResult(o) {
       <th>Difference in points, ${lvl}% interval</th><th>Pooled rate, ${lvl}% interval</th></tr></thead><tbody>${rows}</tbody></table></div>
       ${o.n_rows > o.rows.length ? `<p class="small muted">${int(o.rows.length)} of ${int(o.n_rows)} rows shown.</p>` : ""}` : "";
   return `${kinds}<div class="answer${o.status === "answered" ? "" : " no"}"><p class="sum">${esc(o.answer)}</p>
-      <p class="small muted">Filled in from the ${o.rows.length === 1 ? "row" : "rows"} below by a fixed template. No language model wrote this sentence. The question was turned into the query below ${by}.</p></div>
+      <p class="small muted">Filled in from the ${o.rows.length === 1 ? "row" : "rows"} below by a fixed template. No language model wrote this sentence. The question was turned into the query below ${by}. Intervals are at the ${lvl}% level and allow for how much a tendency moves from one half-season to the next, so they are wider than counting error alone.</p></div>
     <h3>The query it ran</h3>
     <dl class="query">${fields.map(([k, v]) => `<div><dt>${k}</dt><dd>${esc(v)}</dd></div>`).join("")}</dl>
     ${o.rows.length ? `<h3>The rows it got</h3>${table}` : ""}

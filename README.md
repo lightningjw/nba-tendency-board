@@ -8,7 +8,8 @@ prediction is scored against a simple baseline on games the model never saw, and
 layer turns the same possessions into scouting-style deviations ("more corner threes after timeouts than this
 team's other possessions predict"), each with an interval and a sample size. A static web app sits on top: a
 scorecard, team tendency reports (offense with a short written summary, a defense proxy, and what the bench
-did at stoppages), a hot-hand report, and a possession-by-possession replay.
+did at stoppages), a hot-hand report, a possession-by-possession replay, and an ask box that turns a
+question into one lookup in the tendency table.
 
 **Live app:** https://nba-tendency-board-app.vercel.app/ (simulated games with placeholder teams; real results
 are in the table below, and [docs/terms-check.md](docs/terms-check.md) explains why real play-by-play is not
@@ -324,6 +325,59 @@ changed and writes the templated one otherwise.
 What the check cannot do: judge whether the model picked the rows worth reading, or whether a sentence reads
 well. It can only say that nothing in the paragraph disagrees with the table.
 
+## The ask box: a question becomes one lookup
+
+Type "How often do the Celtics get to the rim after a timeout?" and get back the query that was run, the rows
+it found and one sentence written from those rows. The brief's rule is that the language model translates the
+question and never answers from memory. Here that holds by construction:
+
+- **The translator fills seven fields and nothing else**: team, player, situation, outcome, season, comparison
+  and what to compare with. Six of them are values from lists the table supplies; the seventh is a player's
+  name, which is matched against the players in the table. The model does this by calling one of two tools
+  with strict schemas. It is sent the prompt (`tendency/prompts/ask_translate.txt`), those lists and the
+  question. It is sent no row of the table.
+- **A program runs the query**: one parameterised SELECT in DuckDB over `processed/ask_cells.parquet`, which
+  holds every team, player, situation, outcome and season as the tendency layer estimated it. A cell that is
+  on a team page carries the page's numbers (300 of 300 rows on the real pages are equal).
+- **The sentence is a template filled from the rows.** Every rate in it has its interval and its sample size.
+  No words from a language model are shown, so there is nowhere for a remembered fact to get in.
+- **What the table cannot answer gets a fixed sentence saying why**: play calls, coverages, injuries,
+  forecasts, anything outside the table. A cell with too few possessions is answered with its count.
+
+The comparison can be the row's own baseline, a ranking across the league (which says how many other
+intervals overlap the one it names), another team, or another season (the difference gets its own interval).
+
+**Does the model earn its place?** The baseline is a keyword translator with no model. Thirty questions were
+written before either translator, ten of which must be refused. Because the same hand wrote those questions
+and the keywords, the thirty were also put into other words by a separate model session that saw only what
+each one means.
+
+| Translator | The thirty as written | The thirty reworded | Ran a query it should have refused |
+|---|---|---|---|
+| Keyword rules, no model | 27 of 30 | 14 of 30 | 0 of 20 |
+| `claude-opus-5-5` through the API | not measured | not measured | not measured |
+| Stand-in for the model (not the API) | 30 of 30 | 30 of 30 | 0 of 20 |
+
+**The model has not translated a question through the API yet**: there was no key where this was built. The
+stand-in is a separate model session handed the exact request and all sixty questions at once, so it shows
+the prompt can be followed and little more. On the reworded set the keyword rules refused 10 answerable
+questions and answered 4 with the wrong situation, which is the case for a model. The model stays only if
+`ask-eval --translator llm` clearly beats 14 of 30 there and refuses all twenty refusals.
+
+```bash
+pip install -e ".[serve]"                                     # add ",llm" and a key for the model as translator
+python -m tendency ask "Which team shoots the most corner threes off turnovers?" --root data/synthetic
+python -m tendency serve --root data/synthetic                # http://127.0.0.1:8000; set that address in the app's Ask view
+python -m tendency ask-eval                                   # the keyword baseline on both sets of thirty
+export ANTHROPIC_API_KEY=...                                  # read from the environment, never written anywhere
+python -m tendency ask-eval --translator llm                  # the same sixty through the model, about a dollar
+```
+
+Without a key the service translates with the keyword rules and every reply says so. The app's Ask view
+sends nothing anywhere until an address is set, and the rest of the site works without it. The service is
+not deployed; the cheapest option found is a function in the Vercel project that already serves the app, at
+$0 a month, with the model at about 1.5 cents a question from list prices (DECISIONS.md 271).
+
 ## Limits
 
 - **Retrospective so far.** The table was computed after the games were played. The stricter test is built
@@ -341,8 +395,12 @@ well. It can only say that nothing in the paragraph disagrees with the table.
   those opponents usually do, on the team's possessions as a whole. They do not say how the team defends, and
   they are measured against the opposing team's offense, not the five it had on the floor. Rows for a lineup
   or a player did not survive their check and are not shown.
-- **The written summaries have not met the real model.** The request, the check and the fallback are built
-  and tested with a stand-in; the first real run is still to do, and until then every summary is templated.
+- **The written summaries are formulaic.** The first real run kept all 30 on the first draft, and they read
+  as a choice and pairing of rows more than as writing. The bundled sample still carries templated ones.
+- **The ask box answers one row at a time, on offense only.** Defense rows, coach decisions and anything
+  needing two outcomes at once are refused. Its model translator has not been measured through the API, its
+  answer sentence is a template, and an interval on a past season is several points wide because it allows
+  for how much tendencies move.
 - **Coach decisions are descriptions.** The three decision heads say what a bench did and how well that can
   be anticipated. They do not say what it should have done, and a timeout the scorer charged is
   indistinguishable from one a coach asked for when the rules were about to stop play (those stoppages are left
@@ -364,6 +422,7 @@ choice made along the way), `NEXT.md`.
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"                 # add ",torch" for the transformer; without it the scorecard has the trees only
                                         # add ",llm" for machine-written team summaries (needs an API key; see above)
+                                        # add ",serve" for the ask box's service (the tests for it need this too)
 
 pytest                                  # about two minutes
 python -m tendency sample               # synthetic games -> app/data (no network)
@@ -470,7 +529,7 @@ the scorecard starts to mean something.
 ## Layout
 
 ```
-contract/schemas/     the data contract (eight JSON Schemas the app reads, plus the pregame log's)
+contract/schemas/     the data contract (eight JSON Schemas the app reads, the ask service's reply, and the pregame log's)
 tendency/             pipeline package
   cdn_fields.py       every assumed feed name, URL and rule of thumb
   ingest.py           fetch raw JSON as landed; idempotent; backoff; clear stop on a blocked host
@@ -491,26 +550,31 @@ tendency/             pipeline package
   defense.py          defense proxy rows: what opponents did against what they usually do; no scheme is named
   defense_validation.py  fit on half a season, predict each game of the other half, against the opponents alone
   summaries.py        the written summary above a team's table: the table as printed, the request, the check, the template
-  prompts/            the prompt sent with the table, as a file
+  ask_table.py        the table the ask box queries: every cell of every season, written as Parquet at build time
+  ask.py              the ask box: the query schema, the keyword and model translators, the lookup, the sentence
+  ask_service.py      the same as a FastAPI service: POST /ask
+  ask_questions.json  thirty test questions with their expected queries, and the same thirty reworded
+  prompts/            the prompts sent to the model, as files
   export.py           writes and validates the contract JSON
   bulk.py             whole seasons from the GitHub mirror; derives the boxscore the archive lacks
   teams.py            the 30 franchises by team id (city, nickname)
   synth.py            synthetic raw games in the assumed feed shape
   verify_fields.py    checks assumptions against a real game
-  stubs/              named placeholders for everything outside the MVP
+  stubs/              the one thing not built: live mode
 scripts/              fetch_nba_api.py and nightly.sh, for your own machine only
 docs/                 terms check, screenshot, release notes
 tests/                pytest: segmentation edge cases, leakage, ingest, models, contract, prospective log, tendency layer,
-                      stoppages and coach decisions, defense rows, written summaries
+                      stoppages and coach decisions, defense rows, written summaries, the ask box
 app/                  static front end (no build step); app/data is the bundled sample export
 ```
 
 ## The app
 
-Five views: Method (what it does, what the feed can label, the dead-ball table, the defense proxy, and its
+Six views: Method (what it does, what the feed can label, the dead-ball table, the defense proxy, and its
 limits), Team report (a written summary, the tendencies, the defense rows, then what the bench did at stoppages), Replay with "guess
 before the model", Scorecard (possession predictions, coach decisions, and the half-season checks of the
-tendency layer and the defense rows), and Hot hand.
+tendency layer and the defense rows), Hot hand, and Ask (a question box that needs the ask service running
+and says how to start it when it is not).
 It is a plain static site: host the `app/` folder anywhere (GitHub Pages works). Served over HTTPS it installs
 to a phone home screen and works offline after the first load.
 
