@@ -197,6 +197,8 @@ async function renderMethod() {
 
   ${defenseMethod()}
 
+  ${summaryMethod()}
+
   <section class="section"><h2>Not built yet</h2>
     <p>${esc(m.not_built.join(", "))}. Teams with tracking and video vendors have richer labels than this; the point here is the method, not exclusive insight.</p>
   </section>`;
@@ -316,6 +318,40 @@ function defenseSection(r) {
   </div>`;
 }
 
+// ---------- team report: the written summary (contract 1.7) ----------
+// The small number after a sentence is the row of the table it was written from and checked against.
+function summarySection(r) {
+  const s = r.summary;
+  if (!s) return "";                                   // an export from before contract 1.7, or one built without summaries
+  const llm = s.generated_by.kind === "llm";
+  const ref = (rows) => `<sup aria-label="from row ${rows.join(" and ")}">${rows.join(", ")}</sup>`;
+  const n = r.tendencies.length;
+  const body = llm
+    ? `<p class="sum">${s.sentences.map((x) => `${esc(x.text)}${ref(x.rows)}`).join(" ")}</p>`
+    : `<ul class="sum">${s.sentences.map((x) => `<li>${esc(x.text)}${ref(x.rows)}</li>`).join("")}</ul>`;
+  const label = llm
+    ? `Machine-written by ${esc(s.generated_by.model)} from the ${n} rows below and nothing else. It was not told which team this is, and players reached it as placeholders. A program then checked each sentence against the row it cites: every figure and name in it is in that row.`
+    : `Filled in from the first ${s.sentences.length === 1 ? "row" : `${s.sentences.length} rows`} below by a fixed template. No language model wrote this.${s.attempts ? " A machine-written draft was discarded because it did not match the table." : ""}`;
+  return `<div class="summary"><h3>Summary</h3>${body}<p class="small muted">${label} <a href="#method">How that works.</a></p></div>`;
+}
+
+function summaryMethod() {
+  const b = S.manifest.summaries;
+  if (!b) return "";
+  const share = (k, n) => `${int(k)} of ${int(n)}`;
+  const here = b.n_llm
+    ? `In this export ${share(b.n_llm, b.n_reports)} summaries are machine-written (${esc(b.models.join(", "))}). The check discarded the first draft for ${share(b.n_first_draft_rejected, b.n_asked)} teams, and ${b.n_fell_back === 0 ? "none" : int(b.n_fell_back)} ended on the template.`
+    : `In this export no language model was run: all ${int(b.n_reports)} summaries are the templated ones, and each says so.`;
+  return `<section class="section"><h2>The written summary</h2>
+    <div class="cols">
+      <div class="sheet"><h3>Written from the table, and only the table</h3><p>The paragraph above a team's tendencies is written by a language model that is sent that team's table and nothing else. It is not told which team it is, and a player reaches it as a placeholder that is swapped back afterwards. It has nothing to look anything up with and nothing to remember.</p></div>
+      <div class="sheet"><h3>Checked sentence by sentence</h3><p>Each sentence names the row it was written from. A program reads it against that row: every number has to appear there as printed, every name has to be in it, the direction has to match, and a difference has to come with its interval or its sample size. One failure and the whole summary is thrown away.</p></div>
+      <div class="sheet"><h3>What is shown when it fails</h3><p>Three sentences filled in from the first three rows by a fixed template, labeled as that. ${here}</p>
+        <p class="small muted">The check cannot judge whether a sentence chose the most useful rows or reads well. It can only say that nothing in it disagrees with the table.</p></div>
+    </div>
+  </section>`;
+}
+
 async function renderTeam() {
   const teams = S.teams.teams;
   if (!S.teamId) S.teamId = teams[0].team_id;
@@ -334,10 +370,10 @@ async function renderTeam() {
   const ranked = r.threshold !== undefined && r.tendencies.every((x) => x.prob_beyond !== undefined);
   const thr = ranked ? (r.threshold * 100).toFixed(0) : null;
   const point = (n) => `${n} point${n === "1" ? "" : "s"}`;
-  const rows = r.tendencies.map((x) => {
+  const rows = r.tendencies.map((x, i) => {
     const up = x.deviation >= 0, col = !x.excludes_zero ? "#6E7580" : up ? "#2447D6" : "#C8253A";
     return `<li class="${x.excludes_zero ? "" : "weak"}">
-      <div class="what"><b>${esc(x.outcome.label)}</b><br><span class="sit">${esc(x.situation.label)}</span>
+      <div class="what">${r.summary ? `<span class="rowno" aria-label="Row ${i + 1}">${i + 1}</span>` : ""}<b>${esc(x.outcome.label)}</b><br><span class="sit">${esc(x.situation.label)}</span>
         <div class="nums">${pct(x.raw_rate, 1)} observed on ${int(x.n)} ${unit(x)}; ${pct(x.baseline_rate, 1)} is ${versus[x.baseline_kind]}.</div></div>
       <div><span class="dev ${up ? "up" : "down"}">${pts(x.deviation)} pts</span>
         <span class="small muted"> ${lvl}% interval ${pts(x.interval[0])} to ${pts(x.interval[1])}${x.excludes_zero ? "" : ", includes zero"}</span>
@@ -363,6 +399,7 @@ async function renderTeam() {
     <p class="muted">${int(r.n_possessions)} offensive possessions in ${int(r.n_games)} games, through ${day(r.as_of_utc)}.</p></div>
     <div class="pick" role="group" aria-label="Team">${teams.map((x) => `<button data-team="${x.team_id}" aria-pressed="${x.team_id === S.teamId}" title="${esc(x.name)}">${esc(x.tricode)}</button>`).join("")}</div></div>
   <div class="sheet">
+    ${summarySection(r)}
     <p><strong>${esc(r.method.label)}.</strong> ${intro}</p>
     ${r.tendencies.length ? `<ul class="tend">${rows}</ul>` : `<p class="note plain">No situation has at least 25 possessions for this team yet. Ingest more games and run the export again.</p>`}
     <p class="note plain">${outro}</p>

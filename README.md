@@ -7,8 +7,8 @@ how it ends, where the shot comes from, what kind of shot it is, and how early i
 prediction is scored against a simple baseline on games the model never saw, and the result is shown with its uncertainty whether it flatters the model or not. A tendency
 layer turns the same possessions into scouting-style deviations ("more corner threes after timeouts than this
 team's other possessions predict"), each with an interval and a sample size. A static web app sits on top: a
-scorecard, team tendency reports (offense, a defense proxy, and what the bench did at stoppages), a hot-hand
-report, and a possession-by-possession replay.
+scorecard, team tendency reports (offense with a short written summary, a defense proxy, and what the bench
+did at stoppages), a hot-hand report, and a possession-by-possession replay.
 
 **Live app:** https://nba-tendency-board-app.vercel.app/ (simulated games with placeholder teams; real results
 are in the table below, and [docs/terms-check.md](docs/terms-check.md) explains why real play-by-play is not
@@ -270,6 +270,50 @@ No report shows them; the scorecard shows the check.
 Not used: who guarded whom. The mirror's matchup archives have it for every game of the three complete seasons
 and are already on disk; nothing reads them yet (`NEXT.md`).
 
+## The written summary, and how it is kept to the table
+
+Each team report opens with a few sentences about its tendency table. They are written by a language model
+under one rule: it sees that team's table and nothing else, and it never answers from what it remembers about
+a team or a player. Three things enforce that (`tendency/summaries.py`):
+
+- **It is not told who they are.** The request is the prompt in `tendency/prompts/team_summary.txt` and the
+  table as JSON, exactly as the page prints it. The table carries no team name, and a player appears as
+  `PLAYER_A`. Names are put back afterwards. `python -m tendency summarize <export> --dry-run` prints the
+  whole request for one team and sends nothing.
+- **Every sentence is checked against the rows it cites.** A number must be in those rows as printed (so
+  "about 4" fails when the row says 4.1, and so does another row's sample size). A capitalised word must be a
+  name or label in them. The direction must be the row's. A difference must come with its interval or its
+  sample size, and a row whose interval includes zero must say so. One failure discards the whole summary.
+- **What is shown when it fails is a template.** After one more try that is told why the first was discarded,
+  three sentences are filled in from the first three rows and labeled as templated.
+
+The page says which of the two wrote the paragraph, and each sentence carries the number of its row.
+`python -m tendency validate` refuses an export in which a summary no longer matches its table.
+
+**No request has been sent to the API yet**, so the rejection rate with the real model is not known and every
+summary in the bundled sample is the templated one. Two things were measured without it. A separate model
+session, given only the prompt and the 38 tables with players as placeholders, wrote a summary for each: 37
+passed, and one was discarded for running 13 words over a length cap the prompt had not stated (since fixed).
+Those 38 drafts were then corrupted one way at a time, 1,309 times in all (a figure off by 0.1, a rounded
+difference, another row's sample, a reversed direction, a team or player named from memory, a made-up count,
+a missing interval): the check caught every one. Neither is a substitute for running it.
+
+```bash
+pip install -e ".[llm]"
+export ANTHROPIC_API_KEY=...                                  # read from the environment, never written anywhere
+python -m tendency summarize data/real_export --dry-run       # the exact request for one team; nothing is sent
+python -m tendency summarize data/real_export                 # 30 requests; prints five summaries beside their tables
+                                                              # and how often the check discarded a draft
+```
+
+`summarize` works on an export already on disk and can be run again after a failure; it only asks for the
+teams that still need one. `--summaries llm` on `build`, `bulk` or `run` does the same during the export.
+The default, `--summaries keep`, sends nothing: it keeps a machine-written summary whose table has not
+changed and writes the templated one otherwise.
+
+What the check cannot do: judge whether the model picked the rows worth reading, or whether a sentence reads
+well. It can only say that nothing in the paragraph disagrees with the table.
+
 ## Limits
 
 - **Retrospective so far.** The table was computed after the games were played. The stricter test is built
@@ -287,6 +331,8 @@ and are already on disk; nothing reads them yet (`NEXT.md`).
   those opponents usually do, on the team's possessions as a whole. They do not say how the team defends, and
   they are measured against the opposing team's offense, not the five it had on the floor. Rows for a lineup
   or a player did not survive their check and are not shown.
+- **The written summaries have not met the real model.** The request, the check and the fallback are built
+  and tested with a stand-in; the first real run is still to do, and until then every summary is templated.
 - **Coach decisions are descriptions.** The three decision heads say what a bench did and how well that can
   be anticipated. They do not say what it should have done, and a timeout the scorer charged is
   indistinguishable from one a coach asked for when the rules were about to stop play (those stoppages are left
@@ -307,6 +353,7 @@ choice made along the way), `NEXT.md`.
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"                 # add ",torch" for the transformer; without it the scorecard has the trees only
+                                        # add ",llm" for machine-written team summaries (needs an API key; see above)
 
 pytest                                  # about two minutes
 python -m tendency sample               # synthetic games -> app/data (no network)
@@ -433,6 +480,8 @@ tendency/             pipeline package
   coach.py            three coach decisions read off it, their baselines, and the report's bench section
   defense.py          defense proxy rows: what opponents did against what they usually do; no scheme is named
   defense_validation.py  fit on half a season, predict each game of the other half, against the opponents alone
+  summaries.py        the written summary above a team's table: the table as printed, the request, the check, the template
+  prompts/            the prompt sent with the table, as a file
   export.py           writes and validates the contract JSON
   bulk.py             whole seasons from the GitHub mirror; derives the boxscore the archive lacks
   teams.py            the 30 franchises by team id (city, nickname)
@@ -442,14 +491,14 @@ tendency/             pipeline package
 scripts/              fetch_nba_api.py and nightly.sh, for your own machine only
 docs/                 terms check, screenshot, release notes
 tests/                pytest: segmentation edge cases, leakage, ingest, models, contract, prospective log, tendency layer,
-                      stoppages and coach decisions, defense rows
+                      stoppages and coach decisions, defense rows, written summaries
 app/                  static front end (no build step); app/data is the bundled sample export
 ```
 
 ## The app
 
 Five views: Method (what it does, what the feed can label, the dead-ball table, the defense proxy, and its
-limits), Team report (tendencies, the defense rows, then what the bench did at stoppages), Replay with "guess
+limits), Team report (a written summary, the tendencies, the defense rows, then what the bench did at stoppages), Replay with "guess
 before the model", Scorecard (possession predictions, coach decisions, and the half-season checks of the
 tendency layer and the defense rows), and Hot hand.
 It is a plain static site: host the `app/` folder anywhere (GitHub Pages works). Served over HTTPS it installs

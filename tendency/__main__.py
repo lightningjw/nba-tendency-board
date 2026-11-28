@@ -8,6 +8,8 @@
     python -m tendency verify-fields <pbp.json> [<box.json>]       # check assumed feed names against one real game
     python -m tendency validate app/data                           # validate an export directory against the schemas
     python -m tendency inspect <gameId> [--only odd]               # one game's possessions beside the raw actions
+    python -m tendency summarize data/real_export                  # machine-written team summaries into an export already on disk
+                                                                   # (needs ANTHROPIC_API_KEY; --dry-run prints the request and sends nothing)
 
 Prospective log (see tendency/prospective.py):
     python -m tendency train --through 2026-11-16                  # freeze models on games up to that date
@@ -34,6 +36,10 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--max-replays", type=int, default=30, help="how many held-out games to export for the replay view")
         p.add_argument("--no-transformer", action="store_true",
                        help="skip the experimental transformer (it trains by default when PyTorch is installed)")
+        p.add_argument("--summaries", choices=["keep", "llm", "none"], default="keep",
+                       help="the written summary above each tendency table. keep (default): reuse a machine-written one already in --out "
+                            "when its table is unchanged, else the fixed template; no network. llm: also ask the model (needs ANTHROPIC_API_KEY). none: leave them out")
+        p.add_argument("--summary-model", default=None, help="model for --summaries llm (default: claude-opus-5-5)")
         p.add_argument("--predictions", type=Path, default=None,
                        help="prospective log folder to show on the scorecard (default: predictions/ for real data, none for `sample`)")
 
@@ -79,6 +85,13 @@ def main(argv: list[str] | None = None) -> int:
         if name == "predict":
             p.add_argument("--replay", action="store_true", help="simulate a pregame log for a date whose games are already on disk")
             p.add_argument("--force", action="store_true", help="rewrite pregame files that already exist")
+    p = sub.add_parser("summarize", help="write machine-written team summaries into an export already on disk (calls the Anthropic API)")
+    p.add_argument("dir", type=Path, help="export folder, e.g. data/real_export")
+    p.add_argument("--model", default=None, help="default: claude-opus-5-5")
+    p.add_argument("--force", action="store_true", help="write again even where a machine-written summary of the same table is already there")
+    p.add_argument("--limit", type=int, default=None, help="only the first N teams (a cheap first try)")
+    p.add_argument("--show", type=int, default=5, help="print this many summaries beside their tables when done")
+    p.add_argument("--dry-run", action="store_true", help="print the exact request for one team and send nothing; needs no key")
     p = sub.add_parser("inspect", help="print one game's possessions beside the raw actions that produced them")
     p.add_argument("game_id", help="ten-digit game id, e.g. 0022500001")
     p.add_argument("--root", type=Path, default=REPO / "data" / "real")
@@ -91,7 +104,15 @@ def main(argv: list[str] | None = None) -> int:
     from .models import NotEnoughData
     from .pipeline import PipelineError
     from .prospective import ProspectiveError
+    from .summaries import MODEL, SummaryError
     try:
+        if a.cmd == "summarize":
+            from .summaries import summarize_dir
+            summarize_dir(a.dir, a.model or MODEL, a.force, a.limit, a.show, a.dry_run)
+            return 0
+        if getattr(a, "summaries", None) == "llm":
+            from .summaries import client
+            client()                                       # fail now, not after the build, when there is no key
         if a.cmd == "verify-fields":
             from .verify_fields import main as vf
             return vf(a.pbp, a.box)
@@ -140,12 +161,12 @@ def main(argv: list[str] | None = None) -> int:
         from .pipeline import run
         predictions = a.predictions if a.predictions is not None else (None if a.cmd == "sample" else REPO / "predictions")
         run(a.root, a.out, a.max_replays, getattr(a, "fields_verified", False), predictions=predictions,
-            transformer=False if a.no_transformer else None)
+            transformer=False if a.no_transformer else None, summaries=a.summaries, summary_model=a.summary_model)
         return 0
     except HostBlockedError as e:
         print(f"BLOCKED: {e}", file=sys.stderr)
         return 3
-    except (IngestError, PipelineError, NotEnoughData, ContractError, InspectError, ProspectiveError) as e:
+    except (IngestError, PipelineError, NotEnoughData, ContractError, InspectError, ProspectiveError, SummaryError) as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 2
 

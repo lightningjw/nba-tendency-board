@@ -25,7 +25,7 @@
 | Stub | Phase | Slots in at |
 |---|---|---|
 | `live.serve_live` | 3 | FastAPI service that serves the replay contract for a game in progress |
-| `llm.summarize_team_report`, `llm.question_to_query` | 3 | reads team report JSON only; never answers from memory |
+| `llm.question_to_query` | 3 | the ask box: turns a question into a query over the tendency tables; never answers from memory |
 
 ## Step 2.1, done 2026-11-23: the tendency layer (DECISIONS.md 86-109)
 - `tendency/tendency_layer.py` replaces the stand-in in the export. `tendencies.py` stays, only as the thing the
@@ -99,6 +99,24 @@
   - **Shot quality allowed.** Rows are about where shots come from and how possessions end, not whether shots
     go in; opponent shooting percentage is mostly noise at these sample sizes and was not attempted.
   - **A per-game card.** One game supports an interval of about eight points either side on rim share.
+
+## Step 3.2, done 2026-11-27: written team summaries (DECISIONS.md 206 onward)
+- `tendency/summaries.py` and `tendency/prompts/team_summary.txt`: a summary above each team's tendency table,
+  written by a model that is sent that table and nothing else (no team name, players as placeholders), checked
+  sentence by sentence against the rows it cites, and replaced by three templated sentences when it fails.
+  Contract 1.7.
+- **Not done, and it is the first thing to do: no request has been sent to the API.** There was no key here.
+  Every summary in the bundled sample and in the real exports is the templated one.
+  1. `pip install -e ".[llm]"` and `export ANTHROPIC_API_KEY=...` (in the shell only).
+  2. `python -m tendency summarize data/real_export --dry-run` prints the exact request for one team.
+  3. `python -m tendency summarize data/real_export --limit 3`, read the three, then run it without `--limit`.
+     It prints five summaries beside their tables and how often the check discarded a draft.
+- Left out:
+  - The defense rows and the bench section are not summarised. The table is the offense rows only.
+  - The check cannot judge whether the right rows were chosen or whether a sentence reads well (DECISIONS.md 214).
+  - No batch requests and no caching of the prompt: thirty short requests did not seem to need either.
+  - Summaries are in English and assume the labels the pipeline writes today; a new label with a capitalised
+    or numeric word in it is handled, a label that reads badly mid-sentence is not.
 
 ## Known weaknesses worth fixing early
 - Timeouts-left and the penalty flag use simplified rules (see ASSUMPTIONS.md).

@@ -380,6 +380,86 @@
           }
         }
       }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "generated_by",
+        "table_hash",
+        "sentences",
+        "attempts",
+        "rejected"
+      ],
+      "properties": {
+        "generated_by": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "model",
+            "prompt_sha"
+          ],
+          "properties": {
+            "kind": {
+              "enum": [
+                "llm",
+                "template"
+              ]
+            },
+            "model": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "prompt_sha": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "table_hash": {
+          "type": "string"
+        },
+        "sentences": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 5,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "rows",
+              "text"
+            ],
+            "properties": {
+              "rows": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 2,
+                "items": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "text": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "attempts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "rejected": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
     }
   },
   "$defs": {

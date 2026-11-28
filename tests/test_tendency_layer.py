@@ -263,7 +263,7 @@ def test_hot_hand_only_counts_the_trip_before_in_the_same_period_with_him_still_
 def test_export_carries_the_validation_and_the_hot_hand_report(synth_run):
     out = synth_run["out"]
     man = json.loads((out / "manifest.json").read_text())
-    assert man["contract_version"] == "1.6" and man["tendency_method"]["final"] is True
+    assert man["contract_version"] == "1.7" and man["tendency_method"]["final"] is True
     assert "partial-pooling tendency layer" not in man["not_built"]
     val = json.loads((out / man["files"]["tendency_validation"]).read_text())
     assert val["available"] and val["season"] == 2091 and val["drift"]["season"] == 2090 and val["data_kind"] == "synthetic"
@@ -275,7 +275,8 @@ def test_export_carries_the_validation_and_the_hot_hand_report(synth_run):
 
 
 def test_an_export_without_the_new_fields_is_still_valid(synth_run, tmp_path):
-    """A 1.1 export: no validation file, no hot-hand file, team reports in the stand-in's shape."""
+    """A 1.1 export: no validation file, no hot-hand file, team reports in the stand-in's shape, and no written
+    summary (contract 1.7; left in, the validator would rightly say it is about a different table)."""
     import shutil
     old = tmp_path / "old"
     shutil.copytree(synth_run["out"], old)
@@ -287,7 +288,7 @@ def test_an_export_without_the_new_fields_is_still_valid(synth_run, tmp_path):
     reports = standin.team_reports(synth_run["poss"][synth_run["poss"]["season"] == 2091], {})
     for f in (old / "team_reports").glob("*.json"):
         rep = json.loads(f.read_text())
-        rep = {**{k: v for k, v in rep.items() if k not in ("threshold", "drift_included")}, **{k: v for k, v in reports[rep["team_id"]].items() if k != "team_id"}}
+        rep = {**{k: v for k, v in rep.items() if k not in ("threshold", "drift_included", "summary")}, **{k: v for k, v in reports[rep["team_id"]].items() if k != "team_id"}}
         f.write_text(json.dumps(rep))
     counts = validate_export_dir(old)
     assert "tendency_validation" not in counts and "hot_hand" not in counts and counts["team_report"] == 8
