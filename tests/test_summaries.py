@@ -171,7 +171,7 @@ def test_the_template_fills_in_the_first_three_rows_and_passes_its_own_check():
     s = S.template_summary(table())
     assert s["generated_by"] == {"kind": "template", "model": None, "prompt_sha": None} and (s["attempts"], s["rejected"]) == (0, 0)
     assert [x["rows"] for x in s["sentences"]] == [[1], [2], [3]] and s["table_hash"] == S.table_hash(table())
-    assert s["sentences"][0]["text"] == "After a timeout: rim share of shots, 4.1 points above baseline (90% interval 1.2 to 7.3 points above baseline) on 140 shots."
+    assert s["sentences"][0]["text"] == "After a timeout: rim share of shots, 4.1 points above baseline (90% interval 1.2 to 7.3 points above) on 140 shots."
     assert f"{STAR}'s share of finishes" in s["sentences"][2]["text"] and "which includes zero" in s["sentences"][2]["text"]
     assert S.template_summary({"interval_level": "90%", "rows": []}) is None
 

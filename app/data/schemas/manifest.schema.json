@@ -5,7 +5,7 @@
   "additionalProperties": false,
   "required": ["contract_version", "generated_at", "data_kind", "notice", "coverage", "heads", "splits", "tendency_method", "quality", "field_names_verified", "not_built", "files"],
   "properties": {
-    "contract_version": {"enum": ["1.0", "1.1", "1.2", "1.3", "1.4", "1.5", "1.6"]},
+    "contract_version": {"enum": ["1.0", "1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7"]},
     "generated_at": {"type": "string"},
     "data_kind": {"enum": ["synthetic", "real"]},
     "notice": {"type": "string"},
@@ -120,6 +120,24 @@
     },
     "field_names_verified": {"type": "boolean"},
     "not_built": {"type": "array", "items": {"type": "string"}},
+    "summaries": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rule", "n_reports", "n_llm", "n_template", "n_asked", "n_first_draft_rejected", "n_fell_back", "n_drafts", "n_drafts_rejected", "models", "prompt_sha"],
+      "properties": {
+        "rule": {"type": "string"},
+        "n_reports": {"type": "integer", "minimum": 0},
+        "n_llm": {"type": "integer", "minimum": 0},
+        "n_template": {"type": "integer", "minimum": 0},
+        "n_asked": {"type": "integer", "minimum": 0},
+        "n_first_draft_rejected": {"type": "integer", "minimum": 0},
+        "n_fell_back": {"type": "integer", "minimum": 0},
+        "n_drafts": {"type": "integer", "minimum": 0},
+        "n_drafts_rejected": {"type": "integer", "minimum": 0},
+        "models": {"type": "array", "items": {"type": "string"}},
+        "prompt_sha": {"type": ["string", "null"]}
+      }
+    },
     "files": {
       "type": "object",
       "additionalProperties": false,

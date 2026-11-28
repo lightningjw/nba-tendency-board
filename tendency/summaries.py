@@ -271,7 +271,7 @@ def template_sentences(table: dict) -> list[dict]:
         who = "" if r["about"] == TEAM else f"{r['about']}'s "
         zero = ", which includes zero" if r["interval_includes_zero"] else ""
         out.append({"rows": [r["row"]], "text": f"{r['situation']}: {who}{r['outcome']}, {r['difference']} "
-                                                f"({table['interval_level']} interval {r['interval']}{zero}) on {r['sample']}."})
+                                                f"({table['interval_level']} interval {r['interval'].removesuffix(' baseline')}{zero}) on {r['sample']}."})
     return out
 
 
