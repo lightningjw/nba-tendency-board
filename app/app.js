@@ -5,7 +5,8 @@ import { validate } from "./validate.js";
 const DATA = "data/";
 const SCHEMAS = ["manifest", "teams", "team_report", "games", "replay", "scorecard"];
 const OPTIONAL = ["tendency_validation", "hot_hand"];      // contract 1.2; an older export has neither and still renders
-const VIEWS = ["method", "team", "replay", "scorecard", "hothand"];
+const VIEWS = ["method", "team", "replay", "scorecard", "hothand", "ask"];
+const ASK_KEY = "tendency-board.ask-url";                 // where the reader keeps the address of an ask service; nothing else is stored
 const FAMS = ["rim", "paint", "midrange", "corner3", "above_break3"];
 const HEADS = ["finisher", "ending_type", "shot_family"];      // the three the guess mode asks about; every export has them
 const NUMBER = ["zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight"];
@@ -15,6 +16,7 @@ const S = {
   schemas: {}, manifest: null, teams: null, games: null, scorecard: null, tendency_validation: null, hot_hand: null,
   teamId: null, reports: {}, gameId: null, replays: {}, idx: 0,
   guess: false, picks: {}, revealed: false, scored: new Set(),
+  ask: { url: null, health: null, busy: false, question: "", last: null, problem: null, editing: false },
   tally: Object.fromEntries(HEADS.map((h) => [h, { n: 0, you: 0, model: 0, baseline: 0 }])),
 };
 
@@ -199,6 +201,8 @@ async function renderMethod() {
 
   ${summaryMethod()}
 
+  ${askMethod()}
+
   <section class="section"><h2>Not built yet</h2>
     <p>${esc(m.not_built.join(", "))}. Teams with tracking and video vendors have richer labels than this; the point here is the method, not exclusive insight.</p>
   </section>`;
@@ -350,6 +354,135 @@ function summaryMethod() {
         <p class="small muted">The check cannot judge whether a sentence chose the most useful rows or reads well. It can only say that nothing in it disagrees with the table.</p></div>
     </div>
   </section>`;
+}
+
+// ---------- view: ask (contract 1.8). The page works without it; it needs a service whose address the reader sets ----------
+function askMethod() {
+  const a = S.manifest.ask;
+  if (!a) return "";                                   // an export from before contract 1.8
+  return `<section class="section"><h2>The ask box</h2>
+    <div class="cols">
+      <div class="sheet"><h3>A question becomes one lookup</h3><p>A question typed into <a href="#ask">Ask</a> is turned into one query over the tendency table: a team or a player, a situation, an outcome, a season, and what to set it against. The translator can return only values from fixed lists and a player's name. The query it ran is always shown.</p></div>
+      <div class="sheet"><h3>The sentence is filled in, not written</h3><p>A program runs the query and fills a fixed sentence from the rows it gets, with each rate's interval and sample size. No words from a language model are shown, so there is nowhere for something remembered about a team to get in.</p>
+        <p class="small muted">The table behind it has ${int(a.n_cells)} rows over ${esc(a.seasons.join(", "))}; ${int(a.n_estimated)} have enough possessions for an estimate, and the rest are listed with their counts.</p></div>
+      <div class="sheet"><h3>What it will not answer</h3><p>Play calls, coverages, injuries, forecasts and anything outside the table get one fixed sentence that says the data cannot answer and why. A question the table could hold but has no row for gets the same.</p>
+        <p class="small muted">It runs on a small service of its own. Without one this site is unchanged, and Ask says how to start it.</p></div>
+    </div>
+  </section>`;
+}
+
+const askUrl = () => { try { return localStorage.getItem(ASK_KEY); } catch (e) { return null; } };
+const setAskUrl = (u) => { try { if (u) localStorage.setItem(ASK_KEY, u); else localStorage.removeItem(ASK_KEY); } catch (e) { /* private mode: kept for this visit only */ } S.ask.url = u; };
+
+async function askHealth() {
+  const a = S.ask;
+  a.health = null;
+  try {
+    const res = await fetch(`${a.url}/health`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    a.health = await res.json();
+    a.problem = null;
+  } catch (e) { a.problem = `No ask service answered at ${a.url}. Start it, or change the address.`; }
+}
+
+async function askSend(question) {
+  const a = S.ask;
+  a.busy = true; a.question = question; a.last = null; a.problem = null;
+  renderAskBody();
+  try {
+    const res = await fetch(`${a.url}/ask`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ question }) });
+    const obj = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(obj && typeof obj.detail === "string" ? obj.detail : `The service answered HTTP ${res.status}.`);
+    const errors = validate(obj, S.schemas.ask_response);
+    if (errors.length) throw new Error(`The service's reply does not match ask_response.schema.json, so it is not shown:\n${errors.join("\n")}`);
+    a.last = obj;
+  } catch (e) { a.problem = e instanceof TypeError ? `No ask service answered at ${a.url}. Start it, or change the address.` : e.message; }
+  a.busy = false;
+  renderAskBody();
+}
+
+function askResult(o) {
+  const lvl = Math.round(o.interval_level * 100);
+  const by = o.translated_by.kind === "llm" ? `by ${esc(o.translated_by.model)}, which returned the query and no words` : "by keyword rules, with no language model";
+  const kinds = o.data_kind !== S.manifest.data_kind ? `<p class="note">The service is reading ${esc(o.data_kind)} data. The rest of this site is showing ${esc(S.manifest.data_kind)} data.</p>` : "";
+  if (o.status === "refused" || o.status === "failed" || (o.status === "no_row" && !o.query))
+    return `${kinds}<div class="answer no"><p class="sum">${esc(o.answer)}</p>
+      <p class="small muted">${o.status === "refused" ? `A fixed sentence. The question was read ${by}, and nothing was looked up.` : "Nothing was looked up."}</p></div>`;
+  const q = o.query, r0 = o.rows[0];
+  const CMP = { baseline: "Against its own baseline", league: "Ranked across the league", team: `Against ${q.compare_to}`, season: `Against ${q.compare_to}` };
+  const fields = [["Team", q.team || "Any"], ["Player", q.player || "None"], ["Situation", r0 ? r0.situation_label : q.situation],
+    ["Outcome", r0 ? r0.outcome_label : q.outcome], ["Season", q.season], ["Compared", CMP[q.comparison]]];
+  const who = (r) => (r.scope === "player" ? `${esc(r.player)} <span class="muted">${esc(r.team)}</span>` : esc(r.team_name));
+  const p1 = (x) => `${(x * 100).toFixed(1)}%`;
+  const ranked = o.rows.some((r) => r.rank !== undefined);
+  const dev = (r) => (r.estimated ? `${pts(r.deviation)} <span class="muted">(${pts(r.interval[0])} to ${pts(r.interval[1])})</span>` : `<span class="muted">too few to estimate</span>`);
+  const rate = (r) => (r.estimated ? `${p1(r.rate)} <span class="muted">(${p1(r.rate_interval[0])} to ${p1(r.rate_interval[1])})</span>` : `<span class="muted">none</span>`);
+  const rows = o.rows.map((r) => `<tr>${ranked ? `<td>${r.rank}</td>` : ""}<th scope="row" class="l">${who(r)}</th><td>${esc(r.season)}</td>
+    <td>${p1(r.raw_rate)} <span class="muted">${int(r.k)} of ${int(r.n)} ${esc(r.unit)}</span></td>
+    <td>${r.estimated ? p1(r.baseline_rate) : ""}</td><td>${dev(r)}</td><td>${rate(r)}</td></tr>`).join("");
+  const table = o.rows.length ? `<div class="scroll"><table class="tv fit"><thead><tr>${ranked ? "<th>Rank</th>" : ""}<th class="l">Row</th><th>Season</th><th>Observed</th><th>Baseline</th>
+      <th>Difference in points, ${lvl}% interval</th><th>Pooled rate, ${lvl}% interval</th></tr></thead><tbody>${rows}</tbody></table></div>
+      ${o.n_rows > o.rows.length ? `<p class="small muted">${int(o.rows.length)} of ${int(o.n_rows)} rows shown.</p>` : ""}` : "";
+  return `${kinds}<div class="answer${o.status === "answered" ? "" : " no"}"><p class="sum">${esc(o.answer)}</p>
+      <p class="small muted">Filled in from the ${o.rows.length === 1 ? "row" : "rows"} below by a fixed template. No language model wrote this sentence. The question was turned into the query below ${by}.</p></div>
+    <h3>The query it ran</h3>
+    <dl class="query">${fields.map(([k, v]) => `<div><dt>${k}</dt><dd>${esc(v)}</dd></div>`).join("")}</dl>
+    ${o.rows.length ? `<h3>The rows it got</h3>${table}` : ""}
+    <details><summary>The SQL</summary><pre class="sql">${esc(o.sql.text)}\n${esc(JSON.stringify(o.sql.params))}</pre></details>`;
+}
+
+function renderAskBody() {
+  const a = S.ask, box = $("#askbody");
+  if (!box) return;
+  const m = S.manifest.ask;
+  if (!S.schemas.ask_response) {
+    box.innerHTML = `<div class="sheet"><h3>This export has no ask box</h3><p>The data on this page was exported before contract 1.8, so it carries no schema for the ask service's replies. Export again, then reload.</p></div>`;
+    return;
+  }
+  if (!a.url || a.editing) {
+    box.innerHTML = `<div class="sheet"><h3>${a.url ? "Change the service address" : "The ask box needs its service"}</h3>
+      <p>Every other page here is a static file. This one sends your question to a small service that turns it into a query, runs it, and sends back the rows. Nothing is sent anywhere until you set an address below.</p>
+      <p class="small muted">To run it on this machine: <code>python -m tendency serve --root data/synthetic</code>, then use <code>http://127.0.0.1:8000</code>.</p>
+      <form id="askset" class="askform"><label class="sr" for="askurl">Service address</label>
+        <input id="askurl" type="url" inputmode="url" placeholder="http://127.0.0.1:8000" value="${esc(a.url || "")}" autocomplete="off" spellcheck="false">
+        <button class="btn primary" type="submit">Save</button>${a.url ? `<button class="btn" type="button" id="askforget">Forget it</button>` : ""}</form>
+      ${a.problem ? `<p class="note">${esc(a.problem)}</p>` : ""}</div>`;
+    $("#askset").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const u = $("#askurl").value.trim().replace(/\/+$/, "");
+      if (!/^https?:\/\/[^\s/]+/.test(u)) { a.problem = "An address starts with http:// or https://."; renderAskBody(); return; }
+      setAskUrl(u); a.editing = false; a.last = null;
+      await askHealth();
+      if (a.problem) a.editing = true;
+      renderAskBody();
+    });
+    const f = $("#askforget");
+    if (f) f.addEventListener("click", () => { setAskUrl(null); a.editing = false; a.health = null; a.last = null; a.problem = null; renderAskBody(); });
+    return;
+  }
+  const h = a.health;
+  const serving = h ? `${esc(h.data_kind)} data, ${esc(h.seasons.join(", "))}; questions are read ${h.translated_by.kind === "llm" ? `by ${esc(h.translated_by.model)}` : "by keyword rules, with no language model"}` : "not checked yet";
+  const examples = m && m.examples.length ? `<p class="small muted">Try one:</p><div class="pick" id="askex">${m.examples.map((x, i) => `<button type="button" data-i="${i}">${esc(x)}</button>`).join("")}</div>` : "";
+  box.innerHTML = `<form id="askform" class="askform"><label class="sr" for="askq">Your question</label>
+      <input id="askq" type="text" maxlength="${h ? h.max_question : 300}" placeholder="How often do they get to the rim after a timeout?" value="${esc(a.question)}" autocomplete="off">
+      <button class="btn primary" type="submit" ${a.busy ? "disabled" : ""}>${a.busy ? "Asking" : "Ask"}</button></form>
+    ${examples}
+    <div id="askout" aria-live="polite">${a.busy ? `<p class="loading">Looking it up.</p>` : a.problem ? `<div class="error"><h3>No answer</h3><pre>${esc(a.problem)}</pre></div>` : a.last ? askResult(a.last) : ""}</div>
+    <p class="small muted askfoot">Service at ${esc(a.url)}: ${serving}. <button class="link" type="button" id="askchange">Change</button></p>`;
+  $("#askform").addEventListener("submit", (e) => { e.preventDefault(); const v = $("#askq").value.trim(); if (v && !a.busy) askSend(v); });
+  const ex = $("#askex");
+  if (ex) ex.addEventListener("click", (e) => { const b = e.target.closest("button"); if (b && !a.busy) askSend(m.examples[Number(b.dataset.i)]); });
+  $("#askchange").addEventListener("click", () => { a.editing = true; a.problem = null; renderAskBody(); });
+}
+
+async function renderAsk() {
+  const a = S.ask;
+  if (a.url === null) a.url = askUrl();
+  $("#view").innerHTML = `<div class="pagehead"><div><h1>Ask</h1>
+    <p class="muted">A question becomes one lookup in the tendency table. The answer is filled in from the rows it finds, with each rate's interval and sample size.</p></div></div>
+    <div id="askbody"></div>`;
+  renderAskBody();
+  if (a.url && !a.health && S.schemas.ask_response) { await askHealth(); if (a.problem) a.editing = true; renderAskBody(); }
 }
 
 async function renderTeam() {
@@ -774,13 +907,13 @@ function renderHotHand() {
 }
 
 // ---------- routing and boot ----------
-const RENDER = { method: renderMethod, team: renderTeam, replay: renderReplay, scorecard: renderScorecard, hothand: renderHotHand };
+const RENDER = { method: renderMethod, team: renderTeam, replay: renderReplay, scorecard: renderScorecard, hothand: renderHotHand, ask: renderAsk };
 let lastView = null;
 
 async function render() {
   const view = VIEWS.includes(location.hash.slice(1)) ? location.hash.slice(1) : "method";
   document.querySelectorAll(".tabs a").forEach((a) => (a.dataset.view === view ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current")));
-  document.title = `${{ method: "Method", team: "Team report", replay: "Replay", scorecard: "Scorecard", hothand: "Hot hand" }[view]} | Tendency Board`;
+  document.title = `${{ method: "Method", team: "Team report", replay: "Replay", scorecard: "Scorecard", hothand: "Hot hand", ask: "Ask" }[view]} | Tendency Board`;
   const keep = view === lastView ? window.scrollY : 0;
   try { await RENDER[view](); } catch (e) { showError(e); }
   if (view !== lastView) { lastView = view; window.scrollTo(0, 0); } else window.scrollTo(0, keep);
@@ -807,6 +940,8 @@ async function boot() {
       S.schemas[name] = await res.json();
       S[name] = await getJSON(f[name], name);
     }
+    const askSchema = await fetch(`${DATA}schemas/ask_response.schema.json`);       // contract 1.8; an older export has none and Ask says so
+    if (askSchema.ok) S.schemas.ask_response = await askSchema.json();
     for (const d of [S.teams, S.games, S.scorecard, S.tendency_validation, S.hot_hand]) if (d && d.data_kind !== S.manifest.data_kind) throw new ContractProblem("Files disagree about whether the data is synthetic or real.");
   } catch (e) { showError(e); return; }
   S.teams.byId = new Map(S.teams.teams.map((t) => [t.team_id, t]));

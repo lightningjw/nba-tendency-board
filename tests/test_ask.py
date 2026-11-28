@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -478,6 +479,23 @@ def test_the_manifest_describes_the_ask_table_and_the_ask_box_is_no_longer_liste
     rules = ask.RulesTranslator(table)
     statuses = [ask.ask(x, table, rules)["status"] for x in a["examples"]]
     assert len(statuses) >= 5 and statuses[-1] == "refused" and set(statuses[:-1]) == {"answered"}                 # the examples the app offers all work
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+def test_the_app_s_own_validator_accepts_the_service_s_replies_and_rejects_a_broken_one(synth_run, table, rules, tmp_path):
+    replies = [run(table, x) for x in (q(), q(comparison="league"), q(comparison="team", compare_to="BIR"), q(comparison="season", compare_to="2090-91"),
+                                       q(team=None, comparison="league", situation="clutch", outcome="finisher"),
+                                       q(team=None, player="Alder #1", outcome="finisher"), q(team="BOS"))]
+    replies += [ask.ask(x, table, rules) for x in ("What play do the Alders run?", "Is anyone hurt?")]
+    assert {r["status"] for r in replies} >= {"answered", "no_row", "refused", "failed"}
+    path = tmp_path / "replies.json"
+    path.write_text(json.dumps(replies))
+    cmd = ["node", str(REPO / "app" / "tools" / "check-contract.mjs"), str(synth_run["out"]), "--ask", str(path)]
+    ok = subprocess.run(cmd, capture_output=True, text=True)
+    assert ok.returncode == 0, ok.stderr
+    path.write_text(json.dumps([{**replies[0], "status": "guessed"}, {**replies[1], "rows": [{"team": "ALD"}]}]))
+    bad = subprocess.run(cmd, capture_output=True, text=True)
+    assert bad.returncode == 1 and "FAIL ask reply 0" in bad.stderr and "FAIL ask reply 1" in bad.stderr
 
 
 def test_the_commands(synth_run, capsys, monkeypatch):
