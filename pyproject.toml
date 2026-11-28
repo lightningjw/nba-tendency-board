@@ -17,10 +17,14 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8"]
 torch = ["torch>=2.2"]     # optional: the experimental transformer (tendency/transformer_net.py), trained in its own process
+llm = ["anthropic>=2.14"]  # optional: tendency/summaries.py asks for team summaries only under --summaries llm or `summarize`
 bayes = ["pymc>=6"]        # optional: tendency/tendency_pymc.py only. Nothing in the pipeline imports it (DECISIONS.md 99).
 
 [tool.setuptools]
 packages = ["tendency", "tendency.stubs"]
+
+[tool.setuptools.package-data]
+tendency = ["prompts/*.txt"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
