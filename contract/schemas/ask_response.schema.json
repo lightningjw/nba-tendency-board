@@ -1,0 +1,96 @@
+{
+  "$id": "ask_response.schema.json",
+  "title": "What the ask service returns for one question (contract 1.8). Not a file in the export: the app reads it from the service whose URL the reader sets.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract_version", "data_kind", "as_of_utc", "question", "status", "translated_by", "query", "refusal", "sql", "interval_level", "n_rows", "rows", "difference", "answer"],
+  "properties": {
+    "contract_version": {"type": "string"},
+    "data_kind": {"enum": ["synthetic", "real"]},
+    "as_of_utc": {"type": ["string", "null"]},
+    "question": {"type": "string"},
+    "status": {"enum": ["answered", "no_estimate", "no_row", "refused", "failed"]},
+    "translated_by": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "model", "prompt_sha"],
+      "properties": {
+        "kind": {"enum": ["llm", "rules"]},
+        "model": {"type": ["string", "null"]},
+        "prompt_sha": {"type": ["string", "null"]}
+      }
+    },
+    "query": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["team", "player", "situation", "outcome", "season", "comparison", "compare_to"],
+      "properties": {
+        "team": {"type": ["string", "null"]},
+        "player": {"type": ["string", "null"]},
+        "situation": {"type": "string"},
+        "outcome": {"type": "string"},
+        "season": {"type": "string"},
+        "comparison": {"enum": ["baseline", "league", "team", "season"]},
+        "compare_to": {"type": ["string", "null"]}
+      }
+    },
+    "refusal": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["reason"],
+      "properties": {"reason": {"enum": ["play_call", "coverage", "injury", "forecast_or_opinion", "not_in_table", "outside_data"]}}
+    },
+    "sql": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["text", "params"],
+      "properties": {"text": {"type": "string"}, "params": {"type": "array", "items": {"type": ["string", "integer"]}}}
+    },
+    "interval_level": {"type": "number", "minimum": 0, "maximum": 1},
+    "n_rows": {"type": "integer", "minimum": 0},
+    "rows": {"type": "array", "maxItems": 30, "items": {"$ref": "#/$defs/row"}},
+    "difference": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["value", "interval", "excludes_zero"],
+      "properties": {
+        "value": {"type": "number"},
+        "interval": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "number"}},
+        "excludes_zero": {"type": "boolean"}
+      }
+    },
+    "answer": {"type": "string"}
+  },
+  "$defs": {
+    "row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["season", "scope", "team", "team_name", "player", "situation", "situation_label", "outcome", "outcome_label", "unit", "k", "n", "estimated", "raw_rate"],
+      "properties": {
+        "season": {"type": "string"},
+        "scope": {"enum": ["team", "player"]},
+        "team": {"type": "string"},
+        "team_name": {"type": "string"},
+        "player": {"type": ["string", "null"]},
+        "situation": {"type": "string"},
+        "situation_label": {"type": "string"},
+        "outcome": {"type": "string"},
+        "outcome_label": {"type": "string"},
+        "unit": {"type": "string"},
+        "k": {"type": "integer", "minimum": 0},
+        "n": {"type": "integer", "minimum": 1},
+        "estimated": {"type": "boolean"},
+        "raw_rate": {"type": "number", "minimum": 0, "maximum": 1},
+        "baseline_rate": {"type": "number", "minimum": 0, "maximum": 1},
+        "baseline_is": {"type": "string"},
+        "deviation": {"type": "number"},
+        "interval": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "number"}},
+        "excludes_zero": {"type": "boolean"},
+        "rate": {"type": "number", "minimum": 0, "maximum": 1},
+        "rate_interval": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "number", "minimum": 0, "maximum": 1}},
+        "rank": {"type": "integer", "minimum": 1},
+        "ranked": {"type": "integer", "minimum": 1}
+      }
+    }
+  }
+}

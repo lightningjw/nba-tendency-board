@@ -905,3 +905,122 @@ tendency table and writes only from it. Every decision below was made without as
      and it also means a summary is a choice and pairing of rows more than a piece of writing. Left as it is:
      loosening the form would trade a rejection rate we have measured for one we have not.
 234. **The cost of the run was not recorded.** The export keeps no token counts. The Console shows it.
+
+## Step 3.3: the ask box (2026-11-28)
+
+### What a question becomes
+235. **A query is seven fields, never SQL from a model**: team, player, situation, outcome, season,
+     comparison, compare_to. The roadmap lists six; `compare_to` is the other side of a comparison (a second
+     team or a second season). Every field but the player's name is a value from a list the table itself
+     supplies.
+236. **One table, `processed/ask_cells.parquet`: a row per team or player, situation, outcome and season.**
+     The numbers are the tendency layer's own (`candidates`, `estimate`), so a cell that is on a team page
+     carries the page's figures: 300 of 300 rows on the real team pages and 80 of 80 on the sample are equal.
+     DuckDB runs one parameterised SELECT against the Parquet file for each question.
+237. **The possession table is not queried live.** The roadmap says "the tendency and possession tables". A
+     rate counted straight off possessions has no pooling, which is what the layer exists to supply. What the
+     possession table adds is carried in the same file: a cell too thin to estimate is listed with its count,
+     so the answer is "12 of 31, too few to estimate" and not silence. Real data: 42,073 cells, 4,563 of them
+     counted only.
+238. **Every season gets cells, not only the latest.** How much cells move between halves is measured on
+     another season, never the one described: the one before (what the team pages do), or for the first
+     season on record the one after, so two seasons set side by side carry intervals built the same way.
+239. **Each row carries two numbers.** The deviation from its baseline, which is what a team page shows, and
+     its own pooled rate with an interval, which is what a ranking or a comparison is made on.
+240. **Four comparisons.** Against its own baseline (the default); ranked across the league; against another
+     team; against another season. Two rows side by side get the difference with its own interval, the rows
+     treated as independent. A ranking is by pooled rate, and its sentence says how many other intervals
+     overlap the one it names. The brief ranks by the lower bound of an interval; a league ranking cannot
+     do that and still answer "who is highest", so it states the overlap.
+241. **Intervals on a past season are about the games to come.** They include the half-season movement, so a
+     full season's rate has an interval several points wide. The page says so beside every answer.
+242. **Offense only, and a player's row is one thing.** Defense rows and coach decisions are not in the table.
+     A player has "share of finishes while on the floor", inside a situation; anything else about a player
+     is turned down in a sentence.
+
+### Never from memory
+243. **The answer sentence is filled in by a template, not written by a model.** The roadmap asks for "a
+     one-sentence answer written only from those rows". A fixed template does that with certainty and with
+     one model call a question, not two. The model's only job is translation.
+244. **The model can return nothing but list values and a player's name.** It calls one of two tools with
+     strict schemas. The name is cut to 40 name characters, matched against the players in the table, and
+     never echoed when nothing matches.
+245. **A refusal is one of six fixed sentences.** The model picks the reason (play call, coverage, injury,
+     forecast or opinion, not in the table, outside the data); the words are in the code.
+246. **Words from the model are dropped.** If it answers in prose and calls no tool, the question is sent
+     once more with a line telling it to call one, and after that the reply is "could not be turned into a
+     query". Its prose is neither shown nor sent back.
+247. **`tool_choice` is `auto`.** The API guidance says this model family turns down a forced tool call, so
+     the prompt asks for exactly one call, parallel calls are off, and the code checks that one came back.
+248. **The model is sent no row of the table and no list of players.** It gets the prompt, the team names,
+     the seasons and the situation and outcome labels, then the question.
+249. **The model is told not to supply a player's team.** Rosters change and the table knows where a
+     player's possessions were. Working out which team a nickname means is reading the question and is allowed.
+250. **An empty result is the program's to report.** The model translates what was asked even when it doubts
+     a row exists; "no row" and "too few to estimate" come from the lookup.
+251. **The response shows its working**: who translated, the query, the SQL with its parameters, the rows.
+
+### Baseline first
+252. **The baseline is a keyword translator**: regular expressions over the table's own team and player
+     names. It needs no model and no network, and the service uses it when no key is set, labeled as that.
+253. **Thirty questions were written before either translator** (commit 38c3142): twenty the table can answer
+     and ten it must refuse (two play calls, two coverages, two injuries, a forecast, a why, a box-score
+     average, a payroll question that tells the model to answer from memory). A translation is right when
+     every field matches; a few fields list more than one accepted value.
+254. **The keyword baseline gets 27 of 30 on them, and that number flatters it**: the same hand wrote the
+     questions and the keywords. So a second set was made: the same thirty meanings put into words by a
+     separate model session that saw only each item's meaning and the team list. Each was read for meaning
+     before anything was run on it, and none was edited.
+255. **On the reworded set the keyword baseline gets 14 of 30.** Of the twenty answerable questions 6 became
+     the expected query, 10 were refused by mistake and 4 ran with the wrong situation, which is the bad
+     kind of error: a confident answer to a different question. All ten refusals were refused, 8 for an
+     accepted reason. On neither set did it run a query for a question that had to be refused.
+256. **The keywords were frozen at their first run on each set.** One pattern was changed before any run
+     ("defense" as a reason to refuse, because "defense in the penalty" is a situation).
+257. **The model's accuracy was not measured: there is no key here.** A stand-in was run instead: a separate
+     model session given the exact request (prompt, lists, tool schemas) and the sixty questions. It got 30
+     of 30 on each set, with no argument outside its schema. This is weaker than a real run in four ways:
+     one session saw all sixty, it is not the model the service calls, nothing went through the API, and
+     five lines of the prompt were clarified afterwards from what it reported.
+258. **Two of those clarifications name words from the reworded set** ("usage" for a player's finishing
+     share, "in the bonus" for a defense in the penalty). Reworded items 5, 9, 12 and 20 are therefore no
+     longer blind for the model's prompt. They stay blind for the keyword baseline.
+259. **The bar for the model is the reworded set.** 27 against at most 30 on the written set cannot separate
+     two translators. If `ask-eval --translator llm` does not clearly beat 14 of 30 on the reworded set, or
+     runs a query for a question that must be refused, the model comes out and the keywords stay.
+260. **The thirty measure translation, not answers.** Nothing is looked up. A test checks that every
+     expected query is itself valid against the lists.
+
+### The service and the app
+261. **FastAPI, one working endpoint**: `POST /ask`. `GET /health` says what the service is reading and who
+     translates, for the app's footer and for a host's probe.
+262. **A question always gets a sentence.** Status is answered, no_estimate, no_row, refused or failed, all
+     with HTTP 200. An empty question or one over 300 characters is a 422.
+263. **A daily cap on questions sent to the model**: 300 per UTC day by default, then 429. Counted in memory,
+     so a restart resets it. Keyword translation is not capped.
+264. **The service needs DuckDB, FastAPI and the standard library**, plus the SDK when a model translates. A
+     test imports it and checks that pandas, numpy, scipy and LightGBM are not loaded.
+265. **Model `claude-opus-5-5` at low effort, no server-side fallback, no prompt caching.** The job is
+     choosing from short lists. `ASK_MODEL` and `ask-eval --model` are there so a cheaper model can be
+     measured before it is trusted. A declined request becomes the "could not be turned into a query" reply.
+266. **Dependencies.** `fastapi` and `uvicorn` (new `serve` extra): the service; both are on the roadmap's
+     list of boring tools. `httpx` (dev only): FastAPI's in-process test client needs it.
+267. **Contract 1.8.** `ask_response.schema.json` is the service's reply, validated by both validators (the
+     app checks each reply before showing it; `check-contract.mjs --ask` does the same in tests). The
+     manifest gains an optional `ask` block, and "ask box" leaves `not_built`.
+268. **The app's Ask view is behind an address the reader sets.** It is kept in the browser's local storage
+     and nothing is sent anywhere until it is set. Without it the page explains how to start the service,
+     and the rest of the site is unchanged.
+269. **The table stays out of the export.** Thirty teams' cells over four seasons is closer to "a database of
+     comprehensive statistics" than a team page is (docs/terms-check.md), so it sits in `processed/` beside
+     the possession table and the service returns at most 30 rows a question.
+270. **Example questions come from the table's own names**, so the sample offers questions about its
+     placeholder teams. A test asks every one of them.
+271. **Deployment is not built; the recommendation is a Vercel Function in the project that already serves
+     the app, at $0 a month.** Checked on provider pages on 2026-11-27: the Hobby plan runs FastAPI on the
+     Python runtime, allows 300 s a request and a 500 MB bundle, and its allowance covers this traffic many
+     times over. It is for personal, non-commercial use, and it pauses the project when the allowance runs
+     out. Runner-up: Google Cloud Run, also $0 inside a free tier with no end date, needs a billing account.
+     Either way the model is the real cost: about 1.5 cents a question on `claude-opus-5-5` from list prices
+     and a request of about 2,700 tokens (an estimate, not a measurement), so 20 questions a day is about $9
+     a month and the daily cap bounds a bad day at about $4.50.

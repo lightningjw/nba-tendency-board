@@ -15,16 +15,17 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "httpx>=0.27"]   # httpx: FastAPI's test client needs it; tests only
 torch = ["torch>=2.2"]     # optional: the experimental transformer (tendency/transformer_net.py), trained in its own process
-llm = ["anthropic>=2.14"]  # optional: tendency/summaries.py asks for team summaries only under --summaries llm or `summarize`
+llm = ["anthropic>=2.14"]  # optional: team summaries under --summaries llm or `summarize`, and the ask box's translator
+serve = ["fastapi>=0.110", "uvicorn>=0.29"]   # optional: the ask service (tendency/ask_service.py, `python -m tendency serve`)
 bayes = ["pymc>=6"]        # optional: tendency/tendency_pymc.py only. Nothing in the pipeline imports it (DECISIONS.md 99).
 
 [tool.setuptools]
 packages = ["tendency", "tendency.stubs"]
 
 [tool.setuptools.package-data]
-tendency = ["prompts/*.txt"]
+tendency = ["prompts/*.txt", "ask_questions.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

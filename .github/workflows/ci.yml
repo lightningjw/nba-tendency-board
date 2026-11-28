@@ -30,9 +30,10 @@ jobs:
         # PyTorch from the CPU-only index (the default Linux wheel carries CUDA and is several times larger).
         # It is an optional extra; installing it here is what lets the transformer's leakage test run in CI.
         # The Anthropic SDK (the llm extra) is installed so the tests can drive it against a local transport. No key, no request leaves CI.
+        # FastAPI (the serve extra) is installed so the ask service is tested through its own HTTP layer, in process.
         run: |
           pip install torch --index-url https://download.pytorch.org/whl/cpu
-          pip install -e ".[dev,llm]"
+          pip install -e ".[dev,llm,serve]"
       - name: Tests
         run: pytest
       - name: Synthetic pipeline end to end

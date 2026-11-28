@@ -255,7 +255,7 @@ def test_the_simulators_rim_protector_is_the_most_negative_player_on_his_team(sy
 def test_export_has_a_defense_section_that_names_no_scheme(synth_run):
     out = synth_run["out"]
     man = json.loads((out / "manifest.json").read_text())
-    assert man["contract_version"] == "1.7" and "defense proxies" not in man["not_built"]
+    assert man["contract_version"] == "1.8" and "defense proxies" not in man["not_built"]
     for t in json.loads((out / "teams.json").read_text())["teams"]:
         d = json.loads((out / "team_reports" / f"{t['team_id']}.json").read_text())["defense"]
         assert "proxy from outcomes" in d["note"].lower() and "cannot identify" in d["note"] and d["season"] == max(man["coverage"]["seasons"])

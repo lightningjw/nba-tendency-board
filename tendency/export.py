@@ -24,7 +24,7 @@ from . import defense as defense_mod
 from . import defense_validation
 from . import summaries as summaries_mod
 
-NOT_BUILT = ["live mode", "ask box"]
+NOT_BUILT = ["live mode"]
 TENDENCY_NOTE = ("Deviations are estimated on the logit scale with partial pooling: a team's rate against the league, its rate in a situation "
                  "against its other possessions, a player's share against what his usage and the four teammates on the floor predict. "
                  "Intervals include the baseline's own uncertainty and how much tendencies moved between the halves of an earlier season. "
@@ -86,7 +86,7 @@ def _none(v):
 def export_all(out: Path, poss: pd.DataFrame, games: list[dict], run: ModelRun, synthetic: bool,
                max_replays: int = 30, fields_verified: bool = False, log=print, predictions: Path | None = None,
                coach: "coach_mod.CoachRun | None" = None, stops: pd.DataFrame | None = None,
-               summaries: str = "keep", summary_model: str = summaries_mod.MODEL, summary_client=None) -> dict:
+               summaries: str = "keep", summary_model: str = summaries_mod.MODEL, summary_client=None, ask: dict | None = None) -> dict:
     """Write manifest, teams, games, scorecard, team reports and replays into `out`.
 
     `coach` and `stops` are the step 2.4 decision heads and the dead-ball table they were read from.
@@ -271,6 +271,8 @@ def export_all(out: Path, poss: pd.DataFrame, games: list[dict], run: ModelRun, 
         manifest["stoppages"] = coach_mod.stoppage_profile(stops, checks, coach.tables)
     if writer.done:
         manifest["summaries"] = summaries_mod.tally(writer.done)
+    if ask is not None:                                      # step 3.3: what the ask table covers; the table itself stays out of the export
+        manifest["ask"] = ask
     validate(manifest, "manifest")
     _dump(out / "manifest.json", manifest)
     counts = validate_export_dir(out)

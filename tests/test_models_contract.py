@@ -108,7 +108,7 @@ def test_schemas_use_only_keywords_the_app_validator_supports():
         elif isinstance(node, list):
             for i, v in enumerate(node):
                 walk(v, path + [str(i)])
-    for name in contract.SCHEMAS + contract.LOG_SCHEMAS:
+    for name in contract.SCHEMAS + contract.LOG_SCHEMAS + contract.SERVICE_SCHEMAS:
         walk(contract.load_schema(name), [name])
 
 

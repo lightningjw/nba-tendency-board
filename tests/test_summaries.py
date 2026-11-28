@@ -187,7 +187,7 @@ def test_the_template_fills_in_the_first_three_rows_and_passes_its_own_check():
 
 def test_every_team_in_the_sample_gets_a_summary_that_matches_its_table(synth_run):
     man = json.loads((synth_run["out"] / "manifest.json").read_text())
-    assert man["contract_version"] == "1.7" and "LLM-written summaries" not in man["not_built"]
+    assert man["contract_version"] == "1.8" and "LLM-written summaries" not in man["not_built"]
     reports = [json.loads(p.read_text()) for p in sorted((synth_run["out"] / "team_reports").glob("*.json"))]
     assert all(r["summary"]["generated_by"]["kind"] == "template" and S.verify(r) == [] for r in reports)
     b = man["summaries"]

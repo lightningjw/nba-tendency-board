@@ -167,7 +167,7 @@ def test_scorecard_with_and_without_a_second_model_is_valid(synth_run):
     out = synth_run["out"]
     sc = json.loads((out / "scorecard.json").read_text())
     man = json.loads((out / "manifest.json").read_text())
-    assert man["contract_version"] == "1.7" and "transformer predictor" not in man["not_built"]
+    assert man["contract_version"] == "1.8" and "transformer predictor" not in man["not_built"]
     if tr.torch_available():
         assert [m["model_id"] for m in sc["models"]] == ["lightgbm", "transformer"]
         fit = sc["models"][1]["fit"]

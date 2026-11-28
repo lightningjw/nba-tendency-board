@@ -123,6 +123,8 @@ def run(root: Path, out: Path, max_replays: int = 30, fields_verified: bool = Fa
     from .coach import run_coach
     stops = pd.read_parquet(root / "processed" / "stoppages.parquet")
     coach = run_coach(stops, pd.read_parquet(root / "processed" / "player_games.parquet"), model_run.splits, log)
+    from . import ask_table
     from .summaries import MODEL
+    ask_info = ask_table.write(root, poss, games, log)                 # step 3.3: the table the ask service queries
     return export_all(out, poss, games, model_run, synthetic, max_replays, fields_verified, log, predictions, coach=coach, stops=stops,
-                      summaries=summaries, summary_model=summary_model or MODEL, summary_client=summary_client)
+                      summaries=summaries, summary_model=summary_model or MODEL, summary_client=summary_client, ask=ask_info)
