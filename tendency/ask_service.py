@@ -61,18 +61,14 @@ def make_translator(table: ask.Table, translator: str = "auto", model: str | Non
 
 def create_app(table_path: Path | str, translator: str = "auto", model: str | None = None, effort: str | None = None,
                origins: list[str] | None = None, daily_limit: int = DAILY_LIMIT, client=None):
-    from fastapi import FastAPI, HTTPException
+    from fastapi import Body, FastAPI, HTTPException
     from fastapi.middleware.cors import CORSMiddleware
-    from pydantic import BaseModel
 
     table = ask.Table(table_path)
     tr = make_translator(table, translator, model, effort, client)
     budget = _Budget(daily_limit)
     app = FastAPI(title="Tendency Board ask box", version=CONTRACT_VERSION, docs_url=None, redoc_url=None, openapi_url=None)
     app.add_middleware(CORSMiddleware, allow_origins=origins or ["*"], allow_methods=["GET", "POST"], allow_headers=["content-type"])
-
-    class Question(BaseModel):
-        question: str
 
     @app.get("/health")
     def health() -> dict:
@@ -81,8 +77,10 @@ def create_app(table_path: Path | str, translator: str = "auto", model: str | No
                 "translated_by": {"kind": tr.kind, "model": getattr(tr, "model", None)}}
 
     @app.post("/ask")
-    def ask_endpoint(body: Question) -> dict:                           # a plain def: FastAPI runs it in its thread pool
-        question = " ".join(body.question.split())
+    def ask_endpoint(body: dict = Body(...)) -> dict:                   # a plain def: FastAPI runs it in its thread pool
+        if not isinstance(body.get("question"), str):
+            raise HTTPException(422, 'Send {"question": "..."}.')
+        question = " ".join(body["question"].split())
         if not question:
             raise HTTPException(422, "The question is empty.")
         if len(question) > ask.MAX_QUESTION:
