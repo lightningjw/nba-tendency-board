@@ -290,8 +290,18 @@ a team or a player. Three things enforce that (`tendency/summaries.py`):
 The page says which of the two wrote the paragraph, and each sentence carries the number of its row.
 `python -m tendency validate` refuses an export in which a summary no longer matches its table.
 
-**No request has been sent to the API yet**, so the rejection rate with the real model is not known and every
-summary in the bundled sample is the templated one. Two things were measured without it. A separate model
+**First real run, 2026-11-27, 30 teams of 2026-27 so far: the check discarded 0 of 30 drafts.** All 30
+summaries were written by `claude-opus-5-5` on the first draft and none fell back to the template. Thirty
+clean drafts do not mean the rate is zero: a true rate near one in ten would still give this result about one
+time in twenty. Read afterwards against the tables, by a script and by eye: each of the 143 cited rows is
+described by its own situation and outcome, each figure in the 23 two-row sentences sits with its own row, and
+the 7 player rows carry the right name. Every summary is four sentences, 94 to 164 words (three run past the
+140 the prompt asks for; the cap is 180). 128 of the 162 rows whose interval excludes zero were cited, against
+15 of the 138 whose interval includes it. The sentences keep close to the form the prompt shows, so a summary
+is a choice and pairing of rows more than a piece of writing. The bundled sample is synthetic and still
+carries the templated summary.
+
+Two things were measured before that run, without the API. A separate model
 session, given only the prompt and the 38 tables with players as placeholders, wrote a summary for each: 37
 passed, and one was discarded for running 13 words over a length cap the prompt had not stated (since fixed).
 Those 38 drafts were then corrupted one way at a time, 1,309 times in all (a figure off by 0.1, a rounded

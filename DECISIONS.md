@@ -868,7 +868,8 @@ tendency table and writes only from it. Every decision below was made without as
      model wrote this". Each sentence carries the number of the row it cites, and the rows are numbered.
 
 ### What was and was not measured
-227. **The rejection rate over 30 teams was not measured: no request has been sent to the API.** What was
+227. **The rejection rate over 30 teams was not measured: no request has been sent to the API.** (True when
+     written; see 230 for the run made after the merge.) What was
      done instead, and it is weaker: a separate model session was given only the prompt file and the 38
      placeholder tables (30 real, 8 synthetic) and wrote a summary for each. One of 38 was discarded, for
      being 153 words against a cap of 150 that the prompt did not state; the cap is now 180 and the prompt
@@ -881,3 +882,26 @@ tendency table and writes only from it. Every decision below was made without as
 229. **Tests use a fake client, and one drives the real SDK against a local transport** to assert what leaves
      the process: the path, the beta header, a body of six fields, one user message that parses back to the
      placeholder table. CI installs the `llm` extra for that test and sends nothing.
+
+### The first real run (2026-11-27, after the merge; this replaces 227)
+230. **Rejection rate over all 30 teams: 0 of 30 drafts discarded.** `python -m tendency summarize
+     data/real_export` was run with a key on the four-season export (2026-27 through Nov 22). All 30 summaries
+     were written by `claude-opus-5-5` on the first draft, none was retried and none fell back to the
+     template. The API accepted the request as built, JSON output format and server-side fallback together,
+     and no request was answered by a fallback model.
+231. **Zero of 30 is not a rate of zero.** A true rejection rate of about one in ten gives 30 clean drafts
+     about one time in twenty, so "under one in ten" is what this run supports. The retry and the template
+     stay.
+232. **The 30 were read against their tables afterwards, because the check cannot see everything (214).** By
+     script: every stored hash matches its table and every summary passes the check again; each of the 143
+     cited rows is described with its own situation and outcome; no placeholder is left in any sentence. By
+     eye: in each of the 23 two-row sentences every figure sits with its own row, and the 7 player rows carry
+     the right name (one with a diacritic). Nothing wrong was found.
+233. **What the summaries are like.** All 30 have four sentences; 94 to 164 words, median 116; three run past
+     the 140 the prompt asks for and none past the cap of 180. Row choice follows the prompt: 128 of the 162
+     rows whose interval excludes zero were cited, 15 of the 138 that include it, and one summary cited a
+     zero-including row while two zero-excluding rows went unused (the prompt says "prefer", so this is
+     allowed). The sentences keep close to the example form in the prompt. That is why nothing was discarded,
+     and it also means a summary is a choice and pairing of rows more than a piece of writing. Left as it is:
+     loosening the form would trade a rejection rate we have measured for one we have not.
+234. **The cost of the run was not recorded.** The export keeps no token counts. The Console shows it.
