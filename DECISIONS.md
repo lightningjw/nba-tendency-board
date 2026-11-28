@@ -776,3 +776,108 @@ roadmap's order, which is 3.1.
      the largest clutch row on his team. The scorecard test required more than 100 held-out rows for every
      decision head; the closing head had 97 in one split, so the floor is 50.
 205. **No new dependency.**
+
+## Step 3.2: LLM-written team summaries (2026-11-27)
+
+Roadmap step 3.2, brief sections 7 and 12. The rule is the brief's and is absolute: the model sees one team's
+tendency table and writes only from it. Every decision below was made without asking.
+
+### What the model is given
+206. **"That team's tendency table" is the offense table on the team page**: the rows under "Team report", in
+     the order shown. The defense rows and the bench section are not part of it. The brief's wording is "top
+     ten tendencies per team ... plus a short LLM-written summary built only from that table".
+207. **The table is rebuilt exactly as the app prints it** (`summaries.summary_table`): the same strings to the
+     same decimal, with "2.8 points below baseline" where the page prints "−2.8 pts". So "a number in the
+     table" means a number a reader can find on the page. Python and JavaScript round a tie differently
+     (2.25 prints as 2.2 and 2.3), so the Python side rounds half up as `toFixed` does; the two were compared
+     on all 680 rows of three exports and agree.
+208. **The model is not told which team it is, and players reach it as placeholders** (`PLAYER_A`). The roadmap
+     asks that it never answer from memory about the team or its players. Telling it to forget is a request;
+     not telling it who they are is a guarantee. Names are put back after the check, and the check runs again
+     on the text as it will be shown. A test sends the whole synthetic export through and asserts that no
+     roster name is in any request; the same held for 881 real names on a scratch copy of the real export.
+209. **The request holds nothing else.** The system prompt is the checked-in file, sent as it is, with nothing
+     filled in. The one user message is the table as JSON. No tools. The reply is constrained to a JSON shape
+     (`output_config.format`). A second attempt adds the discarded draft and what the check said about it,
+     both in placeholder form.
+
+### The check
+210. **Each sentence cites the rows it was written from, and is checked against those rows only.** The roadmap
+     asks for a validator that rejects "any number not present in the table". Checked against the whole table,
+     a sentence could pair one row's difference with another row's sample size and pass. Checked per row it
+     cannot.
+211. **What is checked** (`summaries.check`): every number is in the cited rows as printed; a number written
+     as a word ("four", "twice", "second half") is rejected unless the row's own label has it ("Two-for-one",
+     "Fourth quarter"); every capitalised word is a name or label in the cited rows, and the first word of a
+     sentence must come from the row or from a short list of ordinary openers; the row's direction word
+     follows its difference, and a single-row sentence has no word pointing the other way; a difference comes
+     with its interval or its sample size; a row whose interval includes zero says "zero"; no markup; one to
+     five sentences; each row used once.
+212. **Uncertainty is stated as a range, not as "give or take".** The roadmap's example is "about 4 points
+     more, give or take 3, on 140 shots". The intervals are not symmetric (a row at +12.1 runs from +4.6 to
+     +22.7), so one give-or-take figure would misstate one side, and "about 4" is a number the table does not
+     print. The summary gives the difference, the interval's two ends and the sample, each as printed.
+213. **Strict on purpose.** A sentence wrongly discarded costs one more request or a templated summary. A
+     sentence wrongly kept breaks the one rule of the step.
+214. **What the check cannot do.** It cannot tell whether the model chose the rows worth reading, or whether a
+     correct number is called the right thing ("4.8 points" for a 4.8% rate would pass). A row's own label may
+     hold a word that points the other way ("16 s or more"), and the sentence is allowed that word as often as
+     the label has it. A name typed in lower case would pass. The Method page says the first of these.
+215. **A gap found and closed while testing**: a sentence on two rows that point opposite ways holds both
+     "above" and "below" whichever way round they are. The check now requires each row's direction to be the
+     next direction word after its own figure.
+
+### The fallback, and where the step runs
+216. **One more try, then the template.** A discarded draft gets one request that is told why. If that fails
+     too, three sentences are filled in from the first three rows by a fixed template, which passes the same
+     check, and the report records how many drafts were asked for and how many were discarded.
+217. **A network or API failure is not a rejection.** `summarize` stops, keeps what it has written, and picks
+     up where it left off when run again. A build with `--summaries llm` does not throw away ten minutes of
+     work: the remaining reports get the template and the log says to run `summarize`.
+218. **The default never touches the network.** `--summaries keep` (the default for `sample`, `build`, `bulk`
+     and `run`) writes the templated summary, or keeps a machine-written one already in the output folder
+     when it was written from exactly this table. `--summaries llm` also asks the model. `none` leaves them
+     out. CI and the tests send nothing.
+219. **`python -m tendency summarize <export>` writes summaries into an export already on disk.** The roadmap
+     says "at export time"; `--summaries llm` does that. But a three-season build takes over ten minutes and
+     thirty summaries take about one, so the separate command is the one to use, and it brings an older
+     export up to this contract.
+220. **A summary is kept only while its table stands.** Reuse needs the same table hash and a passing check.
+     `python -m tendency validate` now refuses an export in which a summary does not match the table beside
+     it, so a hand-edited or stale summary cannot ship. The app's own validator checks only the shape.
+221. **The bundled sample carries templated summaries.** There was no API key in this environment. Replacing
+     them is `python -m tendency summarize app/data` and a commit; a later `python -m tendency sample` keeps
+     them as long as the simulated tables do not change.
+
+### The model
+222. **`claude-opus-5-5`, medium effort, at most 8,000 tokens** (`--model` or `--summary-model` to change it).
+     The API's server-side fallback is on, so if a safety classifier declines a request it is rerun on the
+     model Anthropic recommends. `generated_by.model` records whichever model answered.
+223. **The key is read from the environment** (`ANTHROPIC_API_KEY`, or `ANTHROPIC_AUTH_TOKEN`) by the SDK and is
+     never written to a file, a log or the export. With no key, `--summaries llm` stops before the build starts.
+224. **One new optional dependency: `anthropic`** (the `llm` extra), the official SDK for the one API the
+     roadmap names. Nothing imports it unless a summary is asked for.
+
+### Contract and app
+225. **Contract 1.7.** Team report: optional `summary` (`generated_by` with kind, model and prompt hash;
+     `table_hash`; sentences, each with its rows; drafts asked for and discarded). Manifest: optional
+     `summaries` (the rule in words, who wrote how many, how often a draft was discarded). A 1.6 export
+     validates and renders. "LLM-written summaries" leaves the not-built list.
+226. **The app says who wrote the paragraph, every time.** Machine-written: the model's name, "from the N rows
+     below and nothing else", and that it was checked. Templated: shown as a list and labeled "No language
+     model wrote this". Each sentence carries the number of the row it cites, and the rows are numbered.
+
+### What was and was not measured
+227. **The rejection rate over 30 teams was not measured: no request has been sent to the API.** What was
+     done instead, and it is weaker: a separate model session was given only the prompt file and the 38
+     placeholder tables (30 real, 8 synthetic) and wrote a summary for each. One of 38 was discarded, for
+     being 153 words against a cap of 150 that the prompt did not state; the cap is now 180 and the prompt
+     says 140. That run also showed where the prompt could be read two ways, and those lines were rewritten
+     afterwards, so the final prompt has not been through even this.
+228. **The check does have teeth on that text.** Each stand-in draft was corrupted one way at a time (a figure
+     off by 0.1, the difference rounded, another row's sample, a reversed direction, a named team, a named
+     player, a made-up count, a number as a word, the interval and sample removed, "zero" removed): 1,309
+     corruptions, all caught.
+229. **Tests use a fake client, and one drives the real SDK against a local transport** to assert what leaves
+     the process: the path, the beta header, a body of six fields, one user message that parses back to the
+     placeholder table. CI installs the `llm` extra for that test and sends nothing.

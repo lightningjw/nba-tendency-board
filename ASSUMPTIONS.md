@@ -247,6 +247,19 @@ Assumed, and worth knowing:
 - **Possessions in one game are treated as independent** when the interval is computed. The drift term, which
   is everything the binomial does not explain between two halves of a season, absorbs some of what that misses.
 
+## Written summaries (step 3.2, 2026-11-27)
+
+- **Not verified against the live API.** The request was built from the SDK's documentation and driven through
+  the installed SDK (2.14) against a local transport, which checks what is sent and how a reply is read. It
+  does not check that the API accepts the request. In particular the combination of a JSON output format with
+  the server-side fallback option has not been tried; if the first real run is turned down for it, remove
+  `betas` and `fallbacks` from `summaries.request` and call `cl.messages.create`.
+- **Player names are found by their capital letters.** The check treats a capitalised word that is not in the
+  cited rows as a name. A name written in lower case would not be seen.
+- **A player row's label is "<name>: share of finishes while on the floor".** The table splits on the first
+  colon and a space. A player name containing ": " would be split in the wrong place; none does.
+- **A summary speaks of "the team".** The model is never given the team's name, so no sentence can use it.
+
 ## Verified from documentation only (nba_api docs, not a live file)
 
 - Endpoints: `cdn.nba.com/static/json/liveData/playbyplay/playbyplay_{gameId}.json` and
